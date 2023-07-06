@@ -138,7 +138,8 @@ class LitAutoEncoder(pl.LightningModule):
             ),
             "interval": "step",
         }
-        return {"optimizer": optimizer, "lr_scheduler" : scheduler_dict, "monitor": "val_acc"}
+        # return {"optimizer": optimizer, "lr_scheduler" : scheduler_dict, "monitor": "val_acc"}
+        return {"optimizer": optimizer, "monitor": "val_acc"}
     
     def evaluate(self, batch, stage=None):
         x, y = batch
