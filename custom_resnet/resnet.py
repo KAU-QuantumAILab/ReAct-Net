@@ -79,23 +79,27 @@ class BasicBlock(nn.Module):
         if dilation > 1:
             raise NotImplementedError("Dilation > 1 not supported in BasicBlock")
         # Both self.conv1 and self.downsample layers downsample the input when stride != 1
+        self.planes = planes
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = norm_layer(planes)
-        self.relu = nn.ReLU(inplace=True)
+        self.activation = nn.ReLU(inplace=True)
         self.conv2 = conv3x3(planes, planes)
         self.bn2 = norm_layer(planes)
         self.downsample = downsample
         self.stride = stride
         self.bottleneckLayer = nn.ReLU(inplace=True)
-        # self.bottleneckLayer = LearnableSamplingLayer(planes)
-        # self.bottleneckLayer = SamplingLayer()
+
+    def configure_react(self, ReActLayer, replaceAll=False):
+        self.bottleneckLayer = ReActLayer()
+        if(replaceAll):
+            self.activation = ReActLayer()
 
     def forward(self, x: Tensor) -> Tensor:
         identity = x
 
         out = self.conv1(x)
         out = self.bn1(out)
-        out = self.relu(out)
+        out = self.activation(out)
 
         out = self.conv2(out)
         out = self.bn2(out)
@@ -133,6 +137,8 @@ class Bottleneck(nn.Module):
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         width = int(planes * (base_width / 64.0)) * groups
+        self.width = width
+        self.planes = planes
         # Both self.conv2 and self.downsample layers downsample the input when stride != 1
         self.conv1 = conv1x1(inplanes, width)
         self.bn1 = norm_layer(width)
@@ -140,23 +146,28 @@ class Bottleneck(nn.Module):
         self.bn2 = norm_layer(width)
         self.conv3 = conv1x1(width, planes * self.expansion)
         self.bn3 = norm_layer(planes * self.expansion)
-        self.relu = nn.ReLU(inplace=True)
+        self.activation1 = nn.ReLU(inplace=True)
+        self.activation2 = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
         self.bottleneckLayer = nn.ReLU(inplace=True)
-        # self.bottleneckLayer = LearnableSamplingLayer(width)
-        # self.bottleneckLayer = SamplingLayer()
+
+    def configure_react(self, ReActLayer, replaceAll = False):
+        self.bottleneckLayer = ReActLayer()
+        if(replaceAll):
+            self.activation1 = ReActLayer()
+            self.activation2 = ReActLayer()
 
     def forward(self, x: Tensor) -> Tensor:
         identity = x
 
         out = self.conv1(x)
         out = self.bn1(out)
-        out = self.relu(out)
+        out = self.activation1(out)
 
         out = self.conv2(out)
         out = self.bn2(out)
-        out = self.relu(out)
+        out = self.activation2(out)
 
         out = self.conv3(out)
         out = self.bn3(out)

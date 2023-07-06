@@ -82,9 +82,7 @@ def create_model(activation):
         for name,child in model.named_children():
             if(isinstance(child, nn.Sequential)):
                 for sub_name, sub_child in child.named_children():
-                    sub_child.bottleneckLayer = SamplingLayer()
-            # if isinstance(child,nn.ReLU):
-            #     model._modules['bottleneckLayer'] = SamplingLayer()
+                    sub_child.configure_react(SamplingLayer)
     return model
 
 # define the LightningModule
