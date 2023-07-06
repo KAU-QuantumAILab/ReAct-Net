@@ -40,7 +40,7 @@ resnet_models = {
 name_postfix = "reference" if config['activation'] == 'relu' else "ReAct"
 
 if(not TESTMODE):
-    wandb_logger = WandbLogger(project='Sampling_Network',
+    wandb_logger = WandbLogger(project='ReAct-Net', entity='kau-quantum',
         config=config, save_code=True, log_model="all", name=config["dataset"] + "-" + config["architecture"] + "-" + name_postfix)
 
 if(config["dataset"] == 'CIFAR10' or config["dataset"] == 'MNIST'):
