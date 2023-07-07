@@ -22,7 +22,7 @@ parser = argparse.ArgumentParser(description='ReAct Network Training')
 
 parser.add_argument('--model', required=True, help='resnet18 / resnet50 / resnet101 선택 가능')    # 필요한 인수를 추가
 parser.add_argument('--dataset', required=True, help='MNIST / CIFAR10 / ImageNet 선택가능')
-parser.add_argument('--activation', required=True, help='relu / sampling 선택가능')
+parser.add_argument('--react', action='store_true')
 parser.add_argument('--wandb', action='store_true')
 
 parser.add_argument('--lr', default=0.001)
@@ -45,7 +45,7 @@ config = {
     "dataset": args.dataset,
     "epochs": 200,
     "batch_size" : args.batchsize,
-    'activation' : args.activation,
+    'activation' : "sampling" if args.react else "relu",
     "num_workers" : int(os.cpu_count() / 2),
     "lr_scheduler" : args.lr_scheduler
     }
@@ -104,6 +104,7 @@ def create_model(activation):
             if(isinstance(child, nn.Sequential)):
                 for sub_name, sub_child in child.named_children():
                     sub_child.configure_react(SamplingLayer)
+    
     return model
 
 # define the LightningModule
