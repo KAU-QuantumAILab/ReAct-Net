@@ -235,10 +235,10 @@ elif(config["dataset"]=="ImageNet"):
 
     data_raw = ImageFolder('~/dataset/ImageNet/2012/ILSVRC2012_img_train', transform=transform)
     trainset, testset = torch.utils.data.random_split(data_raw, [0.9, 0.1])
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'], shuffle=True, num_workers = 15)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'], shuffle=True, num_workers =config['num_workers'])
 
     # testset = ImageFolder('dataset/ImageNet/2012/ILSVRC2012_img_val', transform=transform)
-    testloader = torch.utils.data.DataLoader(testset, batch_size=config['batch_size'], shuffle=False, num_workers = 15)
+    testloader = torch.utils.data.DataLoader(testset, batch_size=config['batch_size'], shuffle=False, num_workers =config['num_workers'])
 
 # %%
 # train the model (hint: here are some helpful Trainer arguments for rapid idea iteration)
