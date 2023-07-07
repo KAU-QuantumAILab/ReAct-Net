@@ -25,7 +25,7 @@ parser.add_argument('--dataset', required=True, help='MNIST / CIFAR10 / ImageNet
 parser.add_argument('--react', action='store_true')
 parser.add_argument('--wandb', action='store_true')
 
-parser.add_argument('--lr', type=int, default=0.001)
+parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--optimizer', default="Adam", help="Adam / SGD / AdamW 선택가능")
 parser.add_argument('--batchsize', type=int, default=256)
 parser.add_argument('--lr_scheduler', action='store_true')
