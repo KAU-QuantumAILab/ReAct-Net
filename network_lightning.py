@@ -16,21 +16,39 @@ from torch.optim.lr_scheduler import OneCycleLR
 from models import SamplingLayer, LearnableSamplingLayer
 import wandb
 import os
+import argparse
+
+parser = argparse.ArgumentParser(description='ReAct Network Training')
+
+parser.add_argument('--model', required=True, help='resnet18 / resnet50 / resnet101 선택 가능')    # 필요한 인수를 추가
+parser.add_argument('--dataset', required=True, help='MNIST / CIFAR10 / ImageNet 선택가능')
+parser.add_argument('--activation', required=True, help='relu / sampling 선택가능')
+parser.add_argument('--wandb', action='store_true')
+
+parser.add_argument('--lr', default=0.001)
+parser.add_argument('--optimizer', default="Adam", help="Adam / SGD / AdamW 선택가능")
+parser.add_argument('--batchsize', default=256)
+
+args = parser.parse_args()
+
+
+
 torch.set_float32_matmul_precision('high')
 
-TESTMODE = False
+WANDBLOG = args.wandb
 
 config = {
-    "optimizer" : "Adam",
-    "lr": 0.1,
-    "architecture": "resnet50",
-    "dataset": "CIFAR10",
+    "optimizer" : args.optimizer,
+    "lr": args.lr,
+    "architecture": args.model,
+    "dataset": args.dataset,
     "epochs": 200,
-    "batch_size" : 128,
-    'activation' : 'relu',
+    "batch_size" : args.batchsize,
+    'activation' : args.activation,
     "num_workers" : int(os.cpu_count() / 2)
     }
 
+print(config)
 resnet_models = {
     'resnet18' : resnet.resnet18,
     'resnet50' : resnet.resnet50,
@@ -39,7 +57,7 @@ resnet_models = {
 
 name_postfix = "reference" if config['activation'] == 'relu' else "ReAct"
 
-if(not TESTMODE):
+if(WANDBLOG):
     wandb_logger = WandbLogger(project='ReAct-Net', entity='kau-quantum',
         config=config, save_code=True, log_model="all", name=config["dataset"] + "-" + config["architecture"] + "-" + name_postfix)
 
@@ -160,7 +178,7 @@ class LitAutoEncoder(pl.LightningModule):
 # init the autoencoder
 modified_resnet_encoder = LitAutoEncoder(config['activation'])
 
-if(not TESTMODE):
+if(WANDBLOG):
     wandb_logger.watch(modified_resnet_encoder, log="all")
 else:
     tb_logger = TensorBoardLogger(save_dir="logs/")
@@ -229,6 +247,6 @@ elif(config["dataset"]=="ImageNet"):
 lr_monitor = LearningRateMonitor(logging_interval='step')
 checkpoint_callback = ModelCheckpoint(monitor="val_acc", mode="max")
 
-trainer = pl.Trainer(max_epochs = config["epochs"],logger= tb_logger if TESTMODE else wandb_logger, callbacks=[checkpoint_callback,lr_monitor])
+trainer = pl.Trainer(max_epochs = config["epochs"],logger= wandb_logger if WANDBLOG else tb_logger, callbacks=[checkpoint_callback,lr_monitor])
 trainer.fit(model=modified_resnet_encoder, train_dataloaders=trainloader, val_dataloaders=testloader)
 # trainer.test(model=modified_resnet_encoder,dataloaders=testloader)
