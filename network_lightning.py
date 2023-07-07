@@ -28,6 +28,7 @@ parser.add_argument('--wandb', action='store_true')
 parser.add_argument('--lr', default=0.001)
 parser.add_argument('--optimizer', default="Adam", help="Adam / SGD / AdamW 선택가능")
 parser.add_argument('--batchsize', default=256)
+parser.add_argument('--lr_scheduler', action='store_true')
 
 args = parser.parse_args()
 
@@ -45,7 +46,8 @@ config = {
     "epochs": 200,
     "batch_size" : args.batchsize,
     'activation' : args.activation,
-    "num_workers" : int(os.cpu_count() / 2)
+    "num_workers" : int(os.cpu_count() / 2),
+    "lr_scheduler" : args.lr_scheduler
     }
 
 print(config)
@@ -145,18 +147,21 @@ class LitAutoEncoder(pl.LightningModule):
                 self.parameters(),
                 lr=config["lr"]
             )
-        steps_per_epoch = 45000 // config["batch_size"]
-        scheduler_dict = {
-            "scheduler": OneCycleLR(
-                optimizer,
-                0.1,
-                epochs=config["epochs"],
-                steps_per_epoch=steps_per_epoch,
-            ),
-            "interval": "step",
-        }
-        # return {"optimizer": optimizer, "lr_scheduler" : scheduler_dict, "monitor": "val_acc"}
-        return {"optimizer": optimizer, "monitor": "val_acc"}
+        
+        if(config["lr_scheduler"]):
+            steps_per_epoch = 45000 // config["batch_size"]
+            scheduler_dict = {
+                "scheduler": OneCycleLR(
+                    optimizer,
+                    0.1,
+                    epochs=config["epochs"],
+                    steps_per_epoch=steps_per_epoch,
+                ),
+                "interval": "step",
+            }
+            return {"optimizer": optimizer, "lr_scheduler" : scheduler_dict, "monitor": "val_acc"}
+        else:
+            return {"optimizer": optimizer, "monitor": "val_acc"}
     
     def evaluate(self, batch, stage=None):
         x, y = batch
