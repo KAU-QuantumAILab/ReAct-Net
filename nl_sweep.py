@@ -1,0 +1,258 @@
+import os
+from torch import optim, nn, utils, Tensor
+import torch
+from torchvision.datasets import MNIST, CIFAR10, ImageNet, ImageFolder
+from torchvision.transforms import ToTensor
+import torchvision.transforms as transforms
+# from torchvision import models
+from custom_resnet import resnet
+import pytorch_lightning as pl
+from torchmetrics.functional import accuracy
+from pytorch_lightning.loggers import WandbLogger, TensorBoardLogger 
+from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
+import torch.optim.lr_scheduler as lr_scheduler
+from torch.optim.lr_scheduler import OneCycleLR
+from models import SamplingLayer, LearnableSamplingLayer
+import wandb
+import os
+import argparse
+import random
+from pl_bolts.datamodules import CIFAR10DataModule, MNISTDataModule, ImagenetDataModule
+
+##################################################################################
+################################# config #########################################
+##################################################################################
+
+# sweep_config = {
+#     'method': 'bayes',
+#     'name': 'reaAct_sweep_test',
+#     'metric':{
+#         'goal': 'minimize',
+#         'name': 'val_loss'
+#     },
+#     'parameters': {
+#         'lr': {'min': 0.0001, 'max': 0.1},
+#         'activation': {'values': ['sampling', 'relu']},
+#         'optimizer': {'values': ['SGD', 'Adam', 'AdamW']},
+#         'architecture': {'values': ['resnet18', 'resnet50', 'resnet101']},
+#         'batch_size': {'min': 32, 'max':512},
+#         'num_workers': {'min': 10, 'max': 40},
+#         'lr_scheduler': {'values': [True, False]},
+#         'epochs': {'value': 200}
+#     }
+# }
+
+sweep_config = {
+    'method': 'bayes',
+    'name': 'reaAct_sweep_test',
+    'metric':{
+        'goal': 'minimize',
+        'name': 'val_loss'
+    },
+    'parameters': {
+        'lr': {'min': 0.0001, 'max': 0.1},
+        'activation': {'values': ['sampling', 'relu']},
+        'optimizer': {'values': ['SGD', 'Adam', 'AdamW']},
+        'architecture': {'values': ['resnet18']},
+        'batch_size': {'min': 32, 'max':512},
+        'num_workers': {'min': 10, 'max': 40},
+        'lr_scheduler': {'values': [True, False]},
+        'epochs': {'value': 200}
+    }
+}
+
+project_name = "reAct_sweep"            # wandb project name
+dataset = "CIFAR10"                     # CIFAR10 / MNIST / ImageNet
+
+###################################################################################
+
+resnet_models = {
+    'resnet18' : resnet.resnet18,
+    'resnet50' : resnet.resnet50,
+    'resnet101' : resnet.resnet101
+}
+
+
+class CustomModel(pl.LightningModule):
+    def __init__(self):
+        super(CustomModel, self).__init__()
+        self.sequenceModule = nn.Sequential(
+            nn.Conv2d(1, 3, 4, stride=2), #28 -> 13
+            nn.ReLU(),
+            nn.Conv2d(3, 3, 3), #13 -> 11
+            nn.ReLU(),
+            nn.Conv2d(3, 3, 3), #11 -> 9
+            nn.ReLU(),
+            nn.Conv2d(3, 3, 3), #9 -> 7
+            nn.ReLU(),
+            nn.Conv2d(3, 3, 3), #7 -> 5
+            nn.ReLU(),
+            nn.Conv2d(3, 3, 3), #5 -> 3
+            nn.ReLU(),
+            nn.Conv2d(3, 10, 3), #3 -> 1
+            nn.Flatten()
+        )
+    def forward(self, x):
+        return self.sequenceModule(x)
+
+def create_model(config):
+    if(dataset == 'CIFAR10' or dataset == 'MNIST'):
+        num_classes = 10
+    elif(dataset == 'ImageNet'):
+        num_classes = 1000
+    model = resnet_models[config['architecture']](weights=False, num_classes=num_classes)
+    if(dataset != 'ImageNet'):
+        model.conv1 = nn.Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+        model.maxpool = nn.Identity()
+
+    if(config.activation == 'sampling'):
+        for name,child in model.named_children():
+            if(isinstance(child, nn.Sequential)):
+                for sub_name, sub_child in child.named_children():
+                    sub_child.configure_react(SamplingLayer)
+    
+    return model
+
+# define the LightningModule
+class LitAutoEncoder(pl.LightningModule):
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        # self.save_hyperparameters() # sweep 오류시 제거
+
+        if (self.config['architecture'] == "custom"):
+            self.encoder = CustomModel()
+        else: 
+            self.encoder = create_model(self.config)
+        print(self.encoder)
+
+    def training_step(self, batch, batch_idx):
+        # training_step defines the train loop.
+        # it is independent of forward
+        x, y = batch
+        z = self.encoder(x)
+        loss = nn.functional.cross_entropy(z, y)
+        # Logging to TensorBoard (if installed) by default
+        self.log("train_loss", loss)
+        # print(loss)
+        return loss
+
+    def configure_optimizers(self):
+        if(self.config['optimizer'] == "Adam"):
+            optimizer = torch.optim.Adam(
+                self.parameters(),
+                lr=self.config["lr"],
+            )
+        elif(self.config['optimizer'] == "SGD"):
+            optimizer = torch.optim.SGD(
+                self.parameters(),
+                lr=self.config["lr"],
+                momentum=0.9,
+                weight_decay=5e-4,
+            )
+        elif(self.config['optimizer'] == "AdamW"):
+            optimizer = torch.optim.AdamW(
+                self.parameters(),
+                lr=self.config["lr"]
+            )
+        
+        if(self.config["lr_scheduler"]):
+            steps_per_epoch = 45000 // self.config["batch_size"]
+            scheduler_dict = {
+                "scheduler": OneCycleLR(
+                    optimizer,
+                    0.1,
+                    epochs=self.config["epochs"],
+                    steps_per_epoch=steps_per_epoch,
+                ),
+                "interval": "step",
+            }
+            return {"optimizer": optimizer, "lr_scheduler" : scheduler_dict, "monitor": "val_acc"}
+        else:
+            return {"optimizer": optimizer, "monitor": "val_acc"}
+    
+    def evaluate(self, batch, stage=None):
+        x, y = batch
+        logits = self.encoder(x)
+        loss = nn.functional.cross_entropy(logits, y)
+        preds = torch.argmax(logits, dim=1)
+        acc = accuracy(preds, y, num_classes=10, task="multiclass")
+
+        if stage:
+            self.log(f"{stage}_loss", loss, prog_bar=True, sync_dist=True)
+            self.log(f"{stage}_acc", acc, prog_bar=True, sync_dist=True)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        return self.evaluate(batch, "val")
+
+    def test_step(self, batch, batch_idx):
+        return self.evaluate(batch, "test")
+
+
+def choose_dataset(config, dataset_name = "CIFAR10"):
+    if dataset_name == "CIFAR10":
+        train_transform = transforms.Compose(
+            [
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+            ])
+
+        test_transform = transforms.Compose(
+            [
+            transforms.ToTensor(),
+            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+            ])
+        data = CIFAR10DataModule(
+            data_dir='~/data',
+            batch_size=config.batch_size,
+            num_workers=config.num_workers,
+            train_transforms=train_transform,
+            test_transforms=test_transform,
+            val_transforms=test_transform
+        )
+
+    
+    elif dataset_name == "MNIST":
+        data = MNISTDataModule(
+            data_dir = '~/data',
+            batch_size = config.batch_size,
+            num_workers=config.num_workers
+        )
+
+
+    elif dataset_name == "ImageNet":
+        data = ImagenetDataModule(
+            data_dir = '~/dataset/ImageNet/2012/ILSVRC2012_img_train',
+            batch_size = config.batch_size,
+            num_workers=config.num_workers
+        )
+    
+    return data
+
+def train_model():
+    run = wandb.init(project=project_name)
+    config = wandb.config
+    name_postfix = "reference" if config['activation'] == 'relu' else "ReAct"
+    name = dataset + "-" + config["architecture"] + "-" + name_postfix + "-" + config.optimizer + " lr:" + str(round(config.lr, 4))
+    run.name = name
+    wandb_logger = WandbLogger(project=project_name, entity='kau-quantum',
+        config=config, save_code=True, log_model="all", name=name)
+
+    data = choose_dataset(config=config, dataset_name=dataset)
+
+    modified_resnet_encoder = LitAutoEncoder(config)
+
+    wandb_logger.watch(modified_resnet_encoder)
+
+    lr_monitor = LearningRateMonitor(logging_interval='step')
+    checkpoint_callback = ModelCheckpoint(monitor="val_acc", mode="max")
+    trainer = pl.Trainer(max_epochs = config["epochs"],logger= wandb_logger, callbacks=[checkpoint_callback,lr_monitor])
+    trainer.fit(modified_resnet_encoder, data)
+
+
+if __name__ == '__main__':
+    sweep_id = wandb.sweep(sweep_config, project=project_name)
+    wandb.agent(sweep_id=sweep_id, function=train_model, count=5)
