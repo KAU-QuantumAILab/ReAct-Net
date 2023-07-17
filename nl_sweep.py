@@ -6,10 +6,10 @@ from torchvision.transforms import ToTensor
 import torchvision.transforms as transforms
 # from torchvision import models
 from custom_resnet import resnet
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 from torchmetrics.functional import accuracy
-from pytorch_lightning.loggers import WandbLogger, TensorBoardLogger 
-from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
+from lightning.pytorch.loggers import WandbLogger, TensorBoardLogger 
+from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
 import torch.optim.lr_scheduler as lr_scheduler
 from torch.optim.lr_scheduler import OneCycleLR
 from models import SamplingLayer, LearnableSamplingLayer
@@ -17,7 +17,8 @@ import wandb
 import os
 import argparse
 import random
-from pl_bolts.datamodules import CIFAR10DataModule, MNISTDataModule, ImagenetDataModule
+# from pl_bolts.datamodules import CIFAR10DataModule, MNISTDataModule, ImagenetDataModule
+from lightning.pytorch.accelerators import find_usable_cuda_devices
 
 ##################################################################################
 ################################# config #########################################
@@ -42,27 +43,50 @@ from pl_bolts.datamodules import CIFAR10DataModule, MNISTDataModule, ImagenetDat
 #     }
 # }
 
+# sweep_config = {
+#     'method': 'grid',
+#     'name': 'reaAct_sweep_test',
+#     'metric':{
+#         'goal': 'minimize',
+#         'name': 'val_loss'
+#     },
+#     'parameters': {
+#         'lr': {'values':[0.1, 0.01, 0.001, 0.0001, 0.05, 0.005]},
+#         'activation': {'values': ['sampling']},
+#         'optimizer': {'values': ['SGD', 'Adam', 'AdamW']},
+#         'beta1' : {'values':[0.9, 0.8, 0.7]},
+#         'beta2' : {'values':[0.999, 0.9, 0.8, 0.7]},
+#         'architecture': {'values': ['resnet18']},
+#         'batch_size': {'value': 512},
+#         'num_workers': {'value': 24},
+#         'lr_scheduler': {'values': [True, False]},
+#         'epochs': {'value': 200}
+#     }
+# }
+
 sweep_config = {
-    'method': 'bayes',
-    'name': 'reaAct_sweep_test',
+    'method': 'grid',
+    'name': 'reaAct_sweep_CIFAR10',
     'metric':{
         'goal': 'minimize',
         'name': 'val_loss'
     },
     'parameters': {
-        'lr': {'min': 0.0001, 'max': 0.1},
-        'activation': {'values': ['sampling', 'relu']},
-        'optimizer': {'values': ['SGD', 'Adam', 'AdamW']},
+        'lr': {'values':[0.1, 0.01, 0.001, 0.0001, 0.05, 0.005]},
+        'activation': {'values': ['relu', 'sampling']},
+        'optimizer': {'values': ['SGD']},
+        'momentum': {'values':[0, 0.9, 0.8, 0.5, 0.1]},
         'architecture': {'values': ['resnet18']},
-        'batch_size': {'min': 32, 'max':512},
-        'num_workers': {'min': 10, 'max': 40},
-        'lr_scheduler': {'values': [True, False]},
+        'batch_size': {'value': 256},
+        'num_workers': {'value': 24},
+        'lr_scheduler': {'values': [False, True]},
         'epochs': {'value': 200}
     }
 }
-
-project_name = "reAct_sweep"            # wandb project name
-dataset = "CIFAR10"                     # CIFAR10 / MNIST / ImageNet
+project_name = "reAct_sweep_CIFAR10"            # wandb project name
+dataset = "CIFAR10"                     # CIFAR10 / ImageNet
+# project_name = "reAct_sweep_ImageNet"            # wandb project name
+# dataset = "ImageNet"
 
 ###################################################################################
 
@@ -97,10 +121,10 @@ class CustomModel(pl.LightningModule):
 
 def create_model(config):
     if(dataset == 'CIFAR10' or dataset == 'MNIST'):
-        num_classes = 10
+        config.num_classes = 10
     elif(dataset == 'ImageNet'):
-        num_classes = 1000
-    model = resnet_models[config['architecture']](weights=False, num_classes=num_classes)
+        config.num_classes = 1000
+    model = resnet_models[config['architecture']](weights=False, num_classes=config.num_classes)
     if(dataset != 'ImageNet'):
         model.conv1 = nn.Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
         model.maxpool = nn.Identity()
@@ -142,18 +166,20 @@ class LitAutoEncoder(pl.LightningModule):
             optimizer = torch.optim.Adam(
                 self.parameters(),
                 lr=self.config["lr"],
+                betas=(self.config.beta1, self.config.beta2)
             )
         elif(self.config['optimizer'] == "SGD"):
             optimizer = torch.optim.SGD(
                 self.parameters(),
                 lr=self.config["lr"],
-                momentum=0.9,
+                momentum=self.config["momentum"],
                 weight_decay=5e-4,
             )
         elif(self.config['optimizer'] == "AdamW"):
             optimizer = torch.optim.AdamW(
                 self.parameters(),
-                lr=self.config["lr"]
+                lr=self.config["lr"],
+                betas=(self.config.beta1, self.config.beta2)
             )
         
         if(self.config["lr_scheduler"]):
@@ -176,7 +202,7 @@ class LitAutoEncoder(pl.LightningModule):
         logits = self.encoder(x)
         loss = nn.functional.cross_entropy(logits, y)
         preds = torch.argmax(logits, dim=1)
-        acc = accuracy(preds, y, num_classes=10, task="multiclass")
+        acc = accuracy(preds, y, num_classes=self.config.num_classes, task="multiclass")
 
         if stage:
             self.log(f"{stage}_loss", loss, prog_bar=True, sync_dist=True)
@@ -198,42 +224,47 @@ def choose_dataset(config, dataset_name = "CIFAR10"):
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
-            ])
+        ])
 
         test_transform = transforms.Compose(
             [
             transforms.ToTensor(),
             transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
-            ])
-        data = CIFAR10DataModule(
-            data_dir='~/data',
-            batch_size=config.batch_size,
-            num_workers=config.num_workers,
-            train_transforms=train_transform,
-            test_transforms=test_transform,
-            val_transforms=test_transform
-        )
+        ])
+            
+        trainset = CIFAR10(root='~/data', train=True,
+                                                download=True, transform=train_transform)
+        trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'],
+                                                shuffle=True, num_workers = config['num_workers'])
 
-    
-    elif dataset_name == "MNIST":
-        data = MNISTDataModule(
-            data_dir = '~/data',
-            batch_size = config.batch_size,
-            num_workers=config.num_workers
-        )
+        testset = CIFAR10(root='~/data', train=False,
+                                            download=True, transform=test_transform)
+        testloader = torch.utils.data.DataLoader(testset, batch_size=config['batch_size'],
+                                                shuffle=False, num_workers = config['num_workers'])
+        
+        data = (trainloader, testloader)
 
 
     elif dataset_name == "ImageNet":
-        data = ImagenetDataModule(
-            data_dir = '~/dataset/ImageNet/2012/ILSVRC2012_img_train',
-            batch_size = config.batch_size,
-            num_workers=config.num_workers
-        )
+        transform = transforms.Compose([
+            transforms.Resize((256, 256)),
+            transforms.CenterCrop((224,224)),
+            transforms.ToTensor(),
+            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+        ])
+
+        data_raw = ImageFolder('~/dataset/ImageNet/2012/ILSVRC2012_img_train', transform=transform)
+        trainset, testset = torch.utils.data.random_split(data_raw, [0.9, 0.1])
+        trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'], shuffle=True, num_workers =config['num_workers'])
+
+        # testset = ImageFolder('dataset/ImageNet/2012/ILSVRC2012_img_val', transform=transform)
+        testloader = torch.utils.data.DataLoader(testset, batch_size=config['batch_size'], shuffle=False, num_workers =config['num_workers'])
+        data = (trainloader, testloader)
     
     return data
 
 def train_model():
-    run = wandb.init(project=project_name)
+    run = wandb.init(project=project_name, entity='kau-quantum')
     config = wandb.config
     name_postfix = "reference" if config['activation'] == 'relu' else "ReAct"
     name = dataset + "-" + config["architecture"] + "-" + name_postfix + "-" + config.optimizer + " lr:" + str(round(config.lr, 4))
@@ -245,14 +276,15 @@ def train_model():
 
     modified_resnet_encoder = LitAutoEncoder(config)
 
-    wandb_logger.watch(modified_resnet_encoder)
+    wandb_logger.watch(modified_resnet_encoder, log="all")
 
     lr_monitor = LearningRateMonitor(logging_interval='step')
     checkpoint_callback = ModelCheckpoint(monitor="val_acc", mode="max")
     trainer = pl.Trainer(max_epochs = config["epochs"],logger= wandb_logger, callbacks=[checkpoint_callback,lr_monitor])
-    trainer.fit(modified_resnet_encoder, data)
+    trainer.fit(model=modified_resnet_encoder, train_dataloaders=data[0], val_dataloaders=data[1])
+
 
 
 if __name__ == '__main__':
     sweep_id = wandb.sweep(sweep_config, project=project_name)
-    wandb.agent(sweep_id=sweep_id, function=train_model, count=5)
+    wandb.agent(sweep_id=sweep_id, function=train_model)
