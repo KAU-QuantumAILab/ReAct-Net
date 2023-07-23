@@ -121,6 +121,7 @@ class LitAutoEncoder(pl.LightningModule):
         # Logging to TensorBoard (if installed) by default
         self.log("train_loss", loss)
         # print(loss)
+
         return loss
 
     def configure_optimizers(self):
@@ -156,12 +157,16 @@ class LitAutoEncoder(pl.LightningModule):
             return {"optimizer": optimizer, "lr_scheduler" : scheduler_dict, "monitor": "val_acc"}
         else:
             return {"optimizer": optimizer, "monitor": "val_acc"}
-        
-    def advAttack(self, x, y):
+    
+    def generateAdv(self, x, y):
         with torch.enable_grad():
             atk = torchattacks.PGD(self.encoder, eps=1.6, alpha=1, steps=10)
             adv_images = atk(x, y)
         logits = self.encoder(adv_images)
+        return logits
+    
+    def evaluateRobust(self, x, y):
+        logits = self.generateAdv(x, y)
         preds = torch.argmax(logits, dim=1)
         acc = accuracy(preds, y, num_classes=num_classes, task="multiclass")
         self.log("Robust_acc", acc, prog_bar=True, sync_dist=True)
@@ -176,7 +181,7 @@ class LitAutoEncoder(pl.LightningModule):
         if stage:
             self.log(f"{stage}_loss", loss, prog_bar=True, sync_dist=True)
             self.log(f"{stage}_acc", acc, prog_bar=True, sync_dist=True)
-            self.advAttack(x, y)
+            self.evaluateRobust(x, y)
 
     def validation_step(self, batch, batch_idx):
         self.evaluate(batch, "val")
