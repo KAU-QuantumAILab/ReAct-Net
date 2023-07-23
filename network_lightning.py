@@ -17,6 +17,7 @@ from models import SamplingLayer, LearnableSamplingLayer
 import wandb
 import os
 import argparse
+import torchattacks
 
 parser = argparse.ArgumentParser(description='ReAct Network Training')
 
@@ -69,43 +70,38 @@ elif(config["dataset"] == 'ImageNet'):
     num_classes = 1000
 
 # %%
+def getDataNormalization(dataset):
+    if(dataset == 'CIFAR10'):
+        return (0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)
+    elif(dataset == 'ImageNet'):
+        return (0.485, 0.456, 0.406), (0.229, 0.224, 0.225)
 
+class ModelWrapper(pl.LightningModule):
+    def __init__(self, activation):
+        super(ModelWrapper, self).__init__()
+        self.cnn = self.create_model(activation)
+        mean, std = getDataNormalization(config["dataset"])
+        self.normalization = transforms.Normalize(mean, std)
 
-class CustomModel(pl.LightningModule):
-    def __init__(self):
-        super(CustomModel, self).__init__()
-        self.sequenceModule = nn.Sequential(
-            nn.Conv2d(1, 3, 4, stride=2), #28 -> 13
-            nn.ReLU(),
-            nn.Conv2d(3, 3, 3), #13 -> 11
-            nn.ReLU(),
-            nn.Conv2d(3, 3, 3), #11 -> 9
-            nn.ReLU(),
-            nn.Conv2d(3, 3, 3), #9 -> 7
-            nn.ReLU(),
-            nn.Conv2d(3, 3, 3), #7 -> 5
-            nn.ReLU(),
-            nn.Conv2d(3, 3, 3), #5 -> 3
-            nn.ReLU(),
-            nn.Conv2d(3, 10, 3), #3 -> 1
-            nn.Flatten()
-        )
+    def create_model(self, activation):
+        model = resnet_models[config['architecture']](weights=False, num_classes=num_classes)
+        if(config['dataset'] != 'ImageNet'):
+            model.conv1 = nn.Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+            model.maxpool = nn.Identity()
+
+        if(activation == 'sampling'):
+            for name,child in model.named_children():
+                if(isinstance(child, nn.Sequential)):
+                    for sub_name, sub_child in child.named_children():
+                        sub_child.configure_react(SamplingLayer)
+        
+        return model
+
     def forward(self, x):
-        return self.sequenceModule(x)
+        x = self.normalization(x)
+        return self.cnn(x)
 
-def create_model(activation):
-    model = resnet_models[config['architecture']](weights=False, num_classes=num_classes)
-    if(config['dataset'] != 'ImageNet'):
-        model.conv1 = nn.Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
-        model.maxpool = nn.Identity()
 
-    if(activation == 'sampling'):
-        for name,child in model.named_children():
-            if(isinstance(child, nn.Sequential)):
-                for sub_name, sub_child in child.named_children():
-                    sub_child.configure_react(SamplingLayer)
-    
-    return model
 
 # define the LightningModule
 class LitAutoEncoder(pl.LightningModule):
@@ -113,10 +109,7 @@ class LitAutoEncoder(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters()
 
-        if (config['architecture'] == "custom"):
-            self.encoder = CustomModel()
-        else: 
-            self.encoder = create_model(activation)
+        self.encoder = ModelWrapper(activation)
         print(self.encoder)
 
     def training_step(self, batch, batch_idx):
@@ -163,6 +156,15 @@ class LitAutoEncoder(pl.LightningModule):
             return {"optimizer": optimizer, "lr_scheduler" : scheduler_dict, "monitor": "val_acc"}
         else:
             return {"optimizer": optimizer, "monitor": "val_acc"}
+        
+    def advAttack(self, x, y):
+        with torch.enable_grad():
+            atk = torchattacks.PGD(self.encoder, eps=1.6, alpha=1, steps=10)
+            adv_images = atk(x, y)
+        logits = self.encoder(adv_images)
+        preds = torch.argmax(logits, dim=1)
+        acc = accuracy(preds, y, num_classes=num_classes, task="multiclass")
+        self.log("Robust_acc", acc, prog_bar=True, sync_dist=True)
     
     def evaluate(self, batch, stage=None):
         x, y = batch
@@ -170,10 +172,11 @@ class LitAutoEncoder(pl.LightningModule):
         loss = nn.functional.cross_entropy(logits, y)
         preds = torch.argmax(logits, dim=1)
         acc = accuracy(preds, y, num_classes=num_classes, task="multiclass")
-
+        
         if stage:
             self.log(f"{stage}_loss", loss, prog_bar=True, sync_dist=True)
             self.log(f"{stage}_acc", acc, prog_bar=True, sync_dist=True)
+            self.advAttack(x, y)
 
     def validation_step(self, batch, batch_idx):
         self.evaluate(batch, "val")
@@ -197,13 +200,11 @@ if(config["dataset"]=="CIFAR10"):
         transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
-        transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
         ])
 
     test_transform = transforms.Compose(
         [
         transforms.ToTensor(),
-        transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
         ])
         
     trainset = CIFAR10(root='~/data', train=True,
@@ -236,7 +237,6 @@ elif(config["dataset"]=="ImageNet"):
         transforms.Resize((256, 256)),
         transforms.CenterCrop((224,224)),
         transforms.ToTensor(),
-        transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
     ])
 
     data_raw = ImageFolder('~/dataset/ImageNet/2012/ILSVRC2012_img_train', transform=transform)
