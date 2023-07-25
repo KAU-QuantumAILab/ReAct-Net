@@ -20,6 +20,7 @@ pip install -r requirements.txt
 - ```--lr``` : Learning Rate 변경 (Default ```0.001```)
 - ```--optimizer``` : Optimizer 변경 ```SGD``` / ```Adam``` / ```AdamW``` (Default ```Adam```)
 - ```--batchsize``` : Batch Size 변경 (Default ```256```)
+- ```--adv``` : Adversarial Attack 실시
 
 #### UseAge
 ```python network_lightning.py --model resnet18 --dataset ImageNet --optimizer SGD```
