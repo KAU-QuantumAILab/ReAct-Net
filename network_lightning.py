@@ -30,6 +30,7 @@ parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--optimizer', default="Adam", help="Adam / SGD / AdamW 선택가능")
 parser.add_argument('--batchsize', type=int, default=256)
 parser.add_argument('--lr_scheduler', action='store_true')
+parser.add_argument('--adv', action='store_true')
 
 args = parser.parse_args()
 
@@ -48,7 +49,8 @@ config = {
     "batch_size" : args.batchsize,
     'activation' : "sampling" if args.react else "relu",
     "num_workers" : int(os.cpu_count() / 2),
-    "lr_scheduler" : args.lr_scheduler
+    "lr_scheduler" : args.lr_scheduler,
+    "adv" : args.adv
     }
 
 print(config)
@@ -122,7 +124,14 @@ class LitAutoEncoder(pl.LightningModule):
         self.log("train_loss", loss)
         # print(loss)
 
-        return loss
+        if(config['adv']):
+            advIdx = torch.randint(x.shape[0], (int(x.shape[0] * 0.2),))
+            advExample = self.generateAdv(x[advIdx], y[advIdx])
+            advZ = self.encoder(advExample)
+            advLoss = nn.functional.cross_entropy(advZ, y[advIdx])
+            return loss + advLoss
+        else:
+            return loss
 
     def configure_optimizers(self):
         if(config['optimizer'] == "Adam"):
@@ -181,7 +190,8 @@ class LitAutoEncoder(pl.LightningModule):
         if stage:
             self.log(f"{stage}_loss", loss, prog_bar=True, sync_dist=True)
             self.log(f"{stage}_acc", acc, prog_bar=True, sync_dist=True)
-            self.evaluateRobust(x, y)
+            if(config['adv']):
+                self.evaluateRobust(x, y)
 
     def validation_step(self, batch, batch_idx):
         self.evaluate(batch, "val")
