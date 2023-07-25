@@ -158,14 +158,14 @@ class LitAutoEncoder(pl.LightningModule):
         else:
             return {"optimizer": optimizer, "monitor": "val_acc"}
     
-    def generateAdv(self, x, y):
+    def generateAdv(self, x, y, eps = 0.0314, alpha=0.00784, steps=7):
         with torch.enable_grad():
-            atk = torchattacks.PGD(self.encoder, eps=1.6, alpha=1, steps=10)
+            atk = torchattacks.PGD(self.encoder, eps=eps, alpha=alpha, steps=steps)
             adv_images = atk(x, y)
         return adv_images
     
     def evaluateRobust(self, x, y):
-        adv_images = self.generateAdv(x, y)
+        adv_images = self.generateAdv(x, y, eps=0.05)
         logits = self.encoder(adv_images)
         preds = torch.argmax(logits, dim=1)
         acc = accuracy(preds, y, num_classes=num_classes, task="multiclass")
