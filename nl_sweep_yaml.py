@@ -17,9 +17,8 @@ import wandb
 import os
 import argparse
 import random
-# from pl_bolts.datamodules import CIFAR10DataModule, MNISTDataModule, ImagenetDataModule
-from lightning.pytorch.accelerators import find_usable_cuda_devices
-
+# from lightning.pytorch.accelerators import find_usable_cuda_devices
+import torchattacks
 import yaml
 
 
@@ -122,7 +121,15 @@ class LitAutoEncoder(pl.LightningModule):
         # Logging to TensorBoard (if installed) by default
         self.log("train_loss", loss)
         # print(loss)
-        return loss
+
+        if(self.config['adv']):
+            advIdx = torch.randint(x.shape[0], (int(x.shape[0] * 0.2),))
+            advExample = self.generateAdv(x[advIdx], y[advIdx])
+            advZ = self.encoder(advExample)
+            advLoss = nn.functional.cross_entropy(advZ, y[advIdx])
+            return loss + advLoss
+        else:
+            return loss
 
     def configure_optimizers(self):
         if(self.config['optimizer'] == "Adam"):
@@ -160,16 +167,35 @@ class LitAutoEncoder(pl.LightningModule):
         else:
             return {"optimizer": optimizer, "monitor": "val_acc"}
     
+
+    def generateAdv(self, x, y, eps = 0.0314, alpha=0.00784, steps=3):
+        with torch.enable_grad():
+            atk = torchattacks.PGD(self.encoder, eps=eps, alpha=alpha, steps=steps)
+            adv_images = atk(x, y)
+        return adv_images
+
+
+    def evaluateRobust(self, x, y):
+        adv_images = self.generateAdv(x, y, eps=0.05)
+        logits = self.encoder(adv_images)
+        preds = torch.argmax(logits, dim=1)
+        acc = accuracy(preds, y, num_classes=self.config["num_classes"], task="multiclass")
+        self.log("Robust_acc", acc, prog_bar=True, sync_dist=True)
+
+
     def evaluate(self, batch, stage=None):
         x, y = batch
         logits = self.encoder(x)
         loss = nn.functional.cross_entropy(logits, y)
         preds = torch.argmax(logits, dim=1)
-        acc = accuracy(preds, y, num_classes=self.config.num_classes, task="multiclass")
+        acc = accuracy(preds, y, num_classes=self.config["num_classes"], task="multiclass")
 
         if stage:
             self.log(f"{stage}_loss", loss, prog_bar=True, sync_dist=True)
             self.log(f"{stage}_acc", acc, prog_bar=True, sync_dist=True)
+            if self.config["adv"]:
+                self.evaluateRobust(x, y)
+
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -232,7 +258,8 @@ def train_model():
     run = wandb.init(project=project_name, entity='kau-quantum')
     config = wandb.config
     name_postfix = "reference" if config['activation'] == 'relu' else "ReAct"
-    name = config["dataset"] + "-" + config["architecture"] + "-" + name_postfix + "-" + config.optimizer + " lr:" + str(round(config.lr, 4))
+    adver = "-adv" if config['adv'] else ''
+    name = config["dataset"] + "-" + config["architecture"] + "-" + name_postfix + "-" + config.optimizer + " lr:" + str(round(config.lr, 4)) + adver
     run.name = name
     wandb_logger = WandbLogger(config=config, save_code=True, log_model="all")
 
