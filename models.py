@@ -13,7 +13,7 @@ class SamplingLayer(pl.LightningModule):
         
             output_std = x.view(x.shape[0], x.shape[1], -1).std(axis=-1, keepdim=True, unbiased = False)
             output_std = output_std.unsqueeze(-1)
-
+            output_std = output_std/torch.sqrt(torch.tensor(x.shape[-2] * x.shape[-1]).detach())
 
             epsilon = torch.randn(x.shape[0],x.shape[1],1,1).expand_as(x)
         else:
