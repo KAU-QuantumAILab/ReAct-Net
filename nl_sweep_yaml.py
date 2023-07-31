@@ -34,9 +34,13 @@ parser.add_argument('--entity', default='kau-quantum', help='wandb entity name')
 parser.add_argument('--devices', default=0, type=int, help='choose the CUDA(ex: 0, 1, 2, -1)')
 
 args = parser.parse_args()
+
+torch.set_float32_matmul_precision('high')
+
 global project_name, sweep_config, device_num
 
 project_name = args.project_name        # wandb project name
+entity_name = args.entity
 device_num = [args.devices]
 
 ypath = args.yaml
@@ -57,47 +61,44 @@ resnet_models = {
     'resnet101' : resnet.resnet101
 }
 
+def getDataNormalization(dataset):
+    if(dataset == 'CIFAR10'):
+        return (0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)
+    elif(dataset == 'ImageNet'):
+        return (0.485, 0.456, 0.406), (0.229, 0.224, 0.225)
 
+class ModelWrapper(pl.LightningModule):
+    def __init__(self, config):
+        super(ModelWrapper, self).__init__()
+        self.config = config
+        self.cnn = self.create_model(self.config['activation'])
+        mean, std = getDataNormalization(self.config["dataset"])
+        self.normalization = transforms.Normalize(mean, std)
 
-class CustomModel(pl.LightningModule):
-    def __init__(self):
-        super(CustomModel, self).__init__()
-        self.sequenceModule = nn.Sequential(
-            nn.Conv2d(1, 3, 4, stride=2), #28 -> 13
-            nn.ReLU(),
-            nn.Conv2d(3, 3, 3), #13 -> 11
-            nn.ReLU(),
-            nn.Conv2d(3, 3, 3), #11 -> 9
-            nn.ReLU(),
-            nn.Conv2d(3, 3, 3), #9 -> 7
-            nn.ReLU(),
-            nn.Conv2d(3, 3, 3), #7 -> 5
-            nn.ReLU(),
-            nn.Conv2d(3, 3, 3), #5 -> 3
-            nn.ReLU(),
-            nn.Conv2d(3, 10, 3), #3 -> 1
-            nn.Flatten()
-        )
+    def create_model(self, activation):
+        if(self.config["dataset"] == 'CIFAR10' or self.config["dataset"] == 'MNIST'):
+            self.config['num_classes'] = 10
+        elif(config["dataset"] == 'ImageNet'):
+            self.config['num_classes'] = 1000
+
+        model = resnet_models[self.config['architecture']](weights=False, num_classes=self.config['num_classes'])
+        if(self.config['dataset'] != 'ImageNet'):
+            model.conv1 = nn.Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+            model.maxpool = nn.Identity()
+
+        if(activation == 'sampling'):
+            for name,child in model.named_children():
+                if(isinstance(child, nn.Sequential)):
+                    for sub_name, sub_child in child.named_children():
+                        sub_child.configure_react(SamplingLayer)
+
+        return model
+
     def forward(self, x):
-        return self.sequenceModule(x)
+        x = self.normalization(x)
+        return self.cnn(x)
 
-def create_model(config):
-    if(config["dataset"] == 'CIFAR10' or config["dataset"] == 'MNIST'):
-        config.num_classes = 10
-    elif(config["dataset"] == 'ImageNet'):
-        config.num_classes = 1000
-    model = resnet_models[config['architecture']](weights=False, num_classes=config.num_classes)
-    if(config["dataset"] != 'ImageNet'):
-        model.conv1 = nn.Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
-        model.maxpool = nn.Identity()
 
-    if(config.activation == 'sampling'):
-        for name,child in model.named_children():
-            if(isinstance(child, nn.Sequential)):
-                for sub_name, sub_child in child.named_children():
-                    sub_child.configure_react(SamplingLayer)
-    
-    return model
 
 # define the LightningModule
 class LitAutoEncoder(pl.LightningModule):
@@ -106,10 +107,7 @@ class LitAutoEncoder(pl.LightningModule):
         self.config = config
         # self.save_hyperparameters() # sweep 오류시 제거
 
-        if (self.config['architecture'] == "custom"):
-            self.encoder = CustomModel()
-        else: 
-            self.encoder = create_model(self.config)
+        self.encoder = ModelWrapper(config)
         print(self.encoder)
 
     def training_step(self, batch, batch_idx):
@@ -212,13 +210,11 @@ def choose_dataset(config):
             transforms.RandomCrop(32, padding=4),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
-            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
         ])
 
         test_transform = transforms.Compose(
             [
             transforms.ToTensor(),
-            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
         ])
             
         trainset = CIFAR10(root='~/data', train=True,
@@ -239,7 +235,6 @@ def choose_dataset(config):
             transforms.Resize((256, 256)),
             transforms.CenterCrop((224,224)),
             transforms.ToTensor(),
-            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
         ])
 
         data_raw = ImageFolder('~/dataset/ImageNet/2012/ILSVRC2012_img_train', transform=transform)
@@ -255,7 +250,7 @@ def choose_dataset(config):
 
 
 def train_model():
-    run = wandb.init(project=project_name, entity='kau-quantum')
+    run = wandb.init(project=project_name, entity=entity_name)
     config = wandb.config
     name_postfix = "reference" if config['activation'] == 'relu' else "ReAct"
     adver = "-adv" if config['adv'] else ''
@@ -284,7 +279,7 @@ def train_model():
 
 def main():
     sweep_id = wandb.sweep(sweep_config, project=project_name)
-    wandb.agent(sweep_id=sweep_id, function=train_model, project=project_name, entity='kau-quantum')
+    wandb.agent(sweep_id=sweep_id, function=train_model, project=project_name, entity=entity_name)
 
 
 main()
