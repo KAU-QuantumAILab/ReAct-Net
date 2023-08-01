@@ -18,6 +18,8 @@ import wandb
 import os
 import argparse
 import torchattacks
+import numpy as np
+
 
 parser = argparse.ArgumentParser(description='ReAct Network Training')
 
@@ -104,6 +106,17 @@ class ModelWrapper(pl.LightningModule):
         return self.cnn(x)
 
 
+def mixup_data(x, y):
+    mixup_alpha = 1.0
+    lam = np.random.beta(mixup_alpha, mixup_alpha)
+    batch_size = x.size()[0]
+    index = torch.randperm(batch_size).cuda()
+    mixed_x = lam * x + (1 - lam) * x[index, :]
+    y_a, y_b = y, y[index]
+    return mixed_x, y_a, y_b, lam
+
+def mixup_criterion(criterion, pred, y_a, y_b, lam):
+    return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
 
 # define the LightningModule
 class LitAutoEncoder(pl.LightningModule):
@@ -118,19 +131,29 @@ class LitAutoEncoder(pl.LightningModule):
         # training_step defines the train loop.
         # it is independent of forward
         x, y = batch
-        z = self.encoder(x)
-        loss = nn.functional.cross_entropy(z, y)
-        # Logging to TensorBoard (if installed) by default
-        self.log("train_loss", loss)
-        # print(loss)
+
 
         if(config['adv']):
-            advIdx = torch.randint(x.shape[0], (int(x.shape[0] * 0.2),))
-            advExample = self.generateAdv(x[advIdx], y[advIdx])
-            advZ = self.encoder(advExample)
-            advLoss = nn.functional.cross_entropy(advZ, y[advIdx])
-            return loss + advLoss
+            
+            benign_inputs, benign_targets_a, benign_targets_b, benign_lam = mixup_data(x, y)
+            benign_outputs = self.encoder(benign_inputs)
+            loss1 = mixup_criterion(nn.functional.cross_entropy, benign_outputs, benign_targets_a, benign_targets_b, benign_lam)
+
+
+            advExample = self.generateAdv(x, y)
+            adv_inputs, adv_targets_a, adv_targets_b, adv_lam = mixup_data(advExample, y)
+            advZ = self.encoder(adv_inputs)
+            loss2 = mixup_criterion(nn.functional.cross_entropy, advZ, adv_targets_a, adv_targets_b, adv_lam)
+
+            self.log("train_loss", (loss1 + loss2) / 2)
+
+            return (loss1 + loss2) / 2
         else:
+            z = self.encoder(x)
+            loss = nn.functional.cross_entropy(z, y)
+            # Logging to TensorBoard (if installed) by default
+            self.log("train_loss", loss)
+            # print(loss)
             return loss
 
     def configure_optimizers(self):
