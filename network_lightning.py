@@ -197,7 +197,7 @@ class LitAutoEncoder(pl.LightningModule):
         return adv_images
     
     def evaluateRobust(self, x, y):
-        adv_images = self.generateAdv(x, y, eps=0.05)
+        adv_images = self.generateAdv(x, y)
         logits = self.encoder(adv_images)
         preds = torch.argmax(logits, dim=1)
         acc = accuracy(preds, y, num_classes=num_classes, task="multiclass")
