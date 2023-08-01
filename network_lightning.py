@@ -190,7 +190,7 @@ class LitAutoEncoder(pl.LightningModule):
         else:
             return {"optimizer": optimizer, "monitor": "val_acc"}
     
-    def generateAdv(self, x, y, eps = 0.0314, alpha=0.00784, steps=7):
+    def generateAdv(self, x, y, eps = 0.0314, alpha=0.00784, steps=3):
         with torch.enable_grad():
             atk = torchattacks.PGD(self.encoder, eps=eps, alpha=alpha, steps=steps)
             adv_images = atk(x, y)
