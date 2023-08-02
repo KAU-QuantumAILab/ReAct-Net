@@ -29,9 +29,10 @@ parser = argparse.ArgumentParser(
     description='reAct sweep with yaml \n usage: nl_sweep_yaml.py --yaml [yaml_path] --devices 0 --project_name [pname] -- entity [ename]\n')
 
 parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
-parser.add_argument('--project_name', default="reAct_sweep_test", help='wandb project name')
+parser.add_argument('--project_name', default="reAct_sweep_ImageNet", help='wandb project name')
 parser.add_argument('--entity', default='kau-quantum', help='wandb entity name')
 parser.add_argument('--devices', default=0, type=int, help='choose the CUDA(ex: 0, 1, 2, -1)')
+parser.add_argument('--id', default = None, help='resume wandb sweep id')
 
 args = parser.parse_args()
 
@@ -42,6 +43,7 @@ global project_name, sweep_config, device_num
 project_name = args.project_name        # wandb project name
 entity_name = args.entity
 device_num = [args.devices]
+resume_id = args.id
 
 ypath = args.yaml
 
@@ -78,7 +80,7 @@ class ModelWrapper(pl.LightningModule):
     def create_model(self, activation):
         if(self.config["dataset"] == 'CIFAR10' or self.config["dataset"] == 'MNIST'):
             self.config['num_classes'] = 10
-        elif(config["dataset"] == 'ImageNet'):
+        elif(self.config["dataset"] == 'ImageNet'):
             self.config['num_classes'] = 1000
 
         model = resnet_models[self.config['architecture']](weights=False, num_classes=self.config['num_classes'])
@@ -278,7 +280,11 @@ def train_model():
 
 
 def main():
-    sweep_id = wandb.sweep(sweep_config, project=project_name)
+    if resume_id is None:
+        sweep_id = wandb.sweep(sweep_config, project=project_name)
+    else:
+        sweep_id = resume_id
+
     wandb.agent(sweep_id=sweep_id, function=train_model, project=project_name, entity=entity_name)
 
 
