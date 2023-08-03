@@ -29,10 +29,9 @@ parser = argparse.ArgumentParser(
     description='reAct sweep with yaml \n usage: nl_sweep_yaml.py --yaml [yaml_path] --devices 0 --project_name [pname] -- entity [ename]\n')
 
 parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
-parser.add_argument('--project_name', default="reAct_sweep_ImageNet", help='wandb project name')
+parser.add_argument('--project_name', default="reAct_sweep_MNIST", help='wandb project name')
 parser.add_argument('--entity', default='kau-quantum', help='wandb entity name')
 parser.add_argument('--devices', default=0, type=int, help='choose the CUDA(ex: 0, 1, 2, -1)')
-parser.add_argument('--id', default = None, help='resume wandb sweep id')
 
 args = parser.parse_args()
 
@@ -41,9 +40,8 @@ torch.set_float32_matmul_precision('high')
 global project_name, sweep_config, device_num
 
 project_name = args.project_name        # wandb project name
-entity_name = args.entity
+entity = args.entity
 device_num = [args.devices]
-resume_id = args.id
 
 ypath = args.yaml
 
@@ -68,6 +66,68 @@ def getDataNormalization(dataset):
         return (0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)
     elif(dataset == 'ImageNet'):
         return (0.485, 0.456, 0.406), (0.229, 0.224, 0.225)
+    elif(dataset == 'MNIST'):
+        return (0.1307, ), (0.3081, )
+    
+    
+class MNISTModel(pl.LightningModule):
+    def __init__(self, config):
+        super(MNISTModel, self).__init__()
+        self.config = config
+        self.layer1 = nn.Sequential(
+            nn.Conv2d(1, 16, 5, 1, 2),
+            nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(16, 64, 3, 1, 1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True)
+        )
+        
+        self.layer2 = nn.Sequential(
+            nn.Conv2d(64, 64, 3, 1, 1),
+            nn.BatchNorm2d(64)
+        )
+        
+        self.layer3 = nn.Sequential(
+            nn.Conv2d(64, 128, 3, 1, 1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True)
+        )
+        
+        self.layer4 = nn.Sequential(
+            nn.Conv2d(128, 128, 3, 1, 1),
+            nn.BatchNorm2d(128)
+        )
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(128, 10)
+        self.config['num_classes'] = 10
+        if self.config['activation'] == 'sampling':
+            self.sampling = SamplingLayer()
+        else:
+            self.sampling = nn.ReLU(inplace=True)
+        
+    def forward(self, x):
+        out1 = self.layer1(x)
+        
+        out2 = self.layer2(out1)
+        out2 += out1
+        out2 = self.sampling(out2)
+        
+        out3 = self.layer3(out2)
+        out4 = self.layer4(out3)
+        out4 += out3
+        out4 = self.sampling(out4)
+        
+        y = self.avgpool(out4)
+        y = torch.flatten(y, 1)
+        y = self.fc(y)
+        
+        return y
+        
+        
+        
+        
+        
 
 class ModelWrapper(pl.LightningModule):
     def __init__(self, config):
@@ -84,8 +144,11 @@ class ModelWrapper(pl.LightningModule):
             self.config['num_classes'] = 1000
 
         model = resnet_models[self.config['architecture']](weights=False, num_classes=self.config['num_classes'])
-        if(self.config['dataset'] != 'ImageNet'):
+        if(self.config['dataset'] == 'CIFAR10'):
             model.conv1 = nn.Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+            model.maxpool = nn.Identity()
+        elif(self.config['dataset'] == 'MNIST'):
+            model.conv1 = nn.Conv2d(1, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
             model.maxpool = nn.Identity()
 
         if(activation == 'sampling'):
@@ -108,8 +171,10 @@ class LitAutoEncoder(pl.LightningModule):
         super().__init__()
         self.config = config
         # self.save_hyperparameters() # sweep 오류시 제거
-
-        self.encoder = ModelWrapper(config)
+        if config["architecture"] == "custom":
+            self.encoder = MNISTModel(config)
+        else:
+            self.encoder = ModelWrapper(config)
         print(self.encoder)
 
     def training_step(self, batch, batch_idx):
@@ -246,13 +311,29 @@ def choose_dataset(config):
         # testset = ImageFolder('dataset/ImageNet/2012/ILSVRC2012_img_val', transform=transform)
         testloader = torch.utils.data.DataLoader(testset, batch_size=config['batch_size'], shuffle=False, num_workers =config['num_workers'])
         data = (trainloader, testloader)
+        
+    elif(config["dataset"]=="MNIST"):
+        transform = transforms.Compose(
+            [transforms.ToTensor(),
+        ])
+
+        trainset = MNIST(root='~/data', train=True,
+                                                download=True, transform=transform)
+        trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'],
+                                                shuffle=True, num_workers = config['num_workers'])
+
+        testset = MNIST(root='~/data', train=False,
+                                            download=True, transform=transform)
+        testloader = torch.utils.data.DataLoader(testset, batch_size=config['batch_size'],
+                                                shuffle=False, num_workers = config['num_workers'])
+        data = (trainloader, testloader)
     
     return data
 
 
 
 def train_model():
-    run = wandb.init(project=project_name, entity=entity_name)
+    run = wandb.init(project=project_name, entity=entity)
     config = wandb.config
     name_postfix = "reference" if config['activation'] == 'relu' else "ReAct"
     adver = "-adv" if config['adv'] else ''
@@ -280,12 +361,8 @@ def train_model():
 
 
 def main():
-    if resume_id is None:
-        sweep_id = wandb.sweep(sweep_config, project=project_name)
-    else:
-        sweep_id = resume_id
-
-    wandb.agent(sweep_id=sweep_id, function=train_model, project=project_name, entity=entity_name)
+    sweep_id = wandb.sweep(sweep_config, project=project_name)
+    wandb.agent(sweep_id=sweep_id, function=train_model, project=project_name, entity=entity)
 
 
 main()
