@@ -81,10 +81,15 @@ if(WANDBLOG):
     wandb_logger = WandbLogger(project='ReAct-Net', entity='kau-quantum',
         config=config, save_code=True, log_model="all", name=config["dataset"] + "-" + config["architecture"] + "-" + name_postfix)
 
-if(config["dataset"] == 'CIFAR10' or config["dataset"] == 'MNIST'):
+if(config["dataset"] == 'CIFAR10'):
     num_classes = 10
+    input_ch = 3
+elif(config["dataset"] == 'MNIST'):
+    num_classes = 10
+    input_ch = 1
 elif(config["dataset"] == 'ImageNet'):
     num_classes = 1000
+    input_ch = 3
 
 # %%
 def getDataNormalization(dataset):
@@ -97,13 +102,16 @@ class ModelWrapper(pl.LightningModule):
     def __init__(self, activation):
         super(ModelWrapper, self).__init__()
         self.cnn = self.create_model(activation)
-        mean, std = getDataNormalization(config["dataset"])
-        self.normalization = transforms.Normalize(mean, std)
+        if(config["dataset"] == 'MNIST'):
+            self.normalization = nn.Identity()
+        else:
+            mean, std = getDataNormalization(config["dataset"])
+            self.normalization = transforms.Normalize(mean, std)
 
     def create_model(self, activation):
         model = resnet_models[config['architecture']](weights=False, num_classes=num_classes)
         if(config['dataset'] != 'ImageNet'):
-            model.conv1 = nn.Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+            model.conv1 = nn.Conv2d(input_ch, 64, kernel_size=(1, 1), stride=(1, 1), padding=(1, 1), bias=False)
             model.maxpool = nn.Identity()
 
         if(activation == 'sampling'):
