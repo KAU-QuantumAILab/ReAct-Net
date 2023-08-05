@@ -29,7 +29,7 @@ parser = argparse.ArgumentParser(
     description='reAct sweep with yaml \n usage: nl_sweep_yaml.py --yaml [yaml_path] --devices 0 --project_name [pname] -- entity [ename]\n')
 
 parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
-parser.add_argument('--project_name', default="reAct_sweep_MNIST", help='wandb project name')
+parser.add_argument('--project_name', default="reAct_sweep_MNIST_noFC", help='wandb project name')
 parser.add_argument('--entity', default='kau-quantum', help='wandb entity name')
 parser.add_argument('--devices', default=0, type=int, help='choose the CUDA(ex: 0, 1, 2, -1)')
 
@@ -68,6 +68,50 @@ def getDataNormalization(dataset):
         return (0.485, 0.456, 0.406), (0.229, 0.224, 0.225)
     elif(dataset == 'MNIST'):
         return (0.1307, ), (0.3081, )
+
+class NoFCModel(pl.LightningModule):
+    def __init__(self, config):
+        super(NoFCModel, self).__init__()
+        self.config = config
+        self.config['num_classes'] = 10
+        if self.config["activation"] == 'relu':
+            self.module = nn.Sequential(
+                nn.Conv2d(1, 3, 4, stride=2), #28 -> 13
+                nn.ReLU(),
+                nn.Conv2d(3, 3, 3), #13 -> 11
+                nn.ReLU(),
+                nn.Conv2d(3, 3, 3), #11 -> 9
+                nn.ReLU(),
+                nn.Conv2d(3, 3, 3), #9 -> 7
+                nn.ReLU(),
+                nn.Conv2d(3, 3, 3), #7 -> 5
+                nn.ReLU(),
+                nn.Conv2d(3, 3, 3), #5 -> 3
+                nn.ReLU(),
+                nn.Conv2d(3, 10, 3), #3 -> 1
+                nn.Flatten()
+            )
+        else:
+            self.module = nn.Sequential(
+                nn.Conv2d(1, 3, 4, stride=2), #28 -> 13
+                nn.ReLU(),
+                nn.Conv2d(3, 3, 3), #13 -> 11
+                SamplingLayer(),
+                nn.Conv2d(3, 3, 3), #11 -> 9
+                nn.ReLU(),
+                nn.Conv2d(3, 3, 3), #9 -> 7
+                SamplingLayer(),
+                nn.Conv2d(3, 3, 3), #7 -> 5
+                nn.ReLU(),
+                nn.Conv2d(3, 3, 3), #5 -> 3
+                SamplingLayer(),
+                nn.Conv2d(3, 10, 3), #3 -> 1
+                nn.Flatten()
+            )
+    
+    def forward(self, x):
+        return self.module(x)
+
     
     
 class MNISTModel(pl.LightningModule):
@@ -172,7 +216,7 @@ class LitAutoEncoder(pl.LightningModule):
         self.config = config
         # self.save_hyperparameters() # sweep 오류시 제거
         if config["architecture"] == "custom":
-            self.encoder = MNISTModel(config)
+            self.encoder = NoFCModel(config)
         else:
             self.encoder = ModelWrapper(config)
         print(self.encoder)
