@@ -42,6 +42,7 @@ parser.add_argument('--react', action='store_true')
 parser.add_argument('--wandb', action='store_true')
 
 parser.add_argument('--lr', type=float, default=0.001)
+parser.add_argument('--epsilon', type=float, default=8/255)
 parser.add_argument('--optimizer', default="Adam", help="Adam / SGD / AdamW 선택가능")
 parser.add_argument('--batchsize', type=int, default=256)
 parser.add_argument('--lr_scheduler', action='store_true')
@@ -162,7 +163,7 @@ class LitAutoEncoder(pl.LightningModule):
             loss1 = mixup_criterion(nn.functional.cross_entropy, benign_outputs, benign_targets_a, benign_targets_b, benign_lam)
 
 
-            advExample = self.generateAdv(x, y)
+            advExample = self.generateAdv(x, y, args.epsilon)
             adv_inputs, adv_targets_a, adv_targets_b, adv_lam = mixup_data(advExample, y)
             advZ = self.encoder(adv_inputs)
             loss2 = mixup_criterion(nn.functional.cross_entropy, advZ, adv_targets_a, adv_targets_b, adv_lam)
@@ -219,7 +220,7 @@ class LitAutoEncoder(pl.LightningModule):
         return adv_images
     
     def evaluateRobust(self, x, y):
-        adv_images = self.generateAdv(x, y)
+        adv_images = self.generateAdv(x, y, args.epsilon)
         logits = self.encoder(adv_images)
         preds = torch.argmax(logits, dim=1)
         acc = accuracy(preds, y, num_classes=num_classes, task="multiclass")
