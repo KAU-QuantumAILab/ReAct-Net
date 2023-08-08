@@ -46,6 +46,7 @@ parser.add_argument('--optimizer', default="Adam", help="Adam / SGD / AdamW ì„ í
 parser.add_argument('--batchsize', type=int, default=256)
 parser.add_argument('--lr_scheduler', action='store_true')
 parser.add_argument('--adv', action='store_true')
+parser.add_argument('--replace_all', action='store_true')
 
 args = parser.parse_args()
 
@@ -118,7 +119,7 @@ class ModelWrapper(pl.LightningModule):
             for name,child in model.named_children():
                 if(isinstance(child, nn.Sequential)):
                     for sub_name, sub_child in child.named_children():
-                        sub_child.configure_react(SamplingLayer)
+                        sub_child.configure_react(SamplingLayer, args.replace_all)
         
         return model
 
