@@ -12,7 +12,7 @@ from lightning.pytorch.loggers import WandbLogger, TensorBoardLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
 import torch.optim.lr_scheduler as lr_scheduler
 from torch.optim.lr_scheduler import OneCycleLR
-from models import SamplingLayer, LearnableSamplingLayer
+from models import SamplingLayer, MLPMnist, Layer4Conv, Net, Layer3Conv
 import wandb
 import os
 import argparse
@@ -29,14 +29,18 @@ parser = argparse.ArgumentParser(
     description='reAct sweep with yaml \n usage: nl_sweep_yaml.py --yaml [yaml_path] --devices 0 --project_name [pname] -- entity [ename]\n')
 
 parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
-parser.add_argument('--project_name', default="reAct_sweep_test", help='wandb project name')
+parser.add_argument('--project_name', default="reAct_sweep_Tiny50", help='wandb project name')
 parser.add_argument('--entity', default='kau-quantum', help='wandb entity name')
 parser.add_argument('--devices', default=0, type=int, help='choose the CUDA(ex: 0, 1, 2, -1)')
 
 args = parser.parse_args()
+
+torch.set_float32_matmul_precision('high')
+
 global project_name, sweep_config, device_num
 
 project_name = args.project_name        # wandb project name
+entity = args.entity
 device_num = [args.devices]
 
 ypath = args.yaml
@@ -57,47 +61,155 @@ resnet_models = {
     'resnet101' : resnet.resnet101
 }
 
+def getDataNormalization(dataset):
+    if(dataset == 'CIFAR10'):
+        return (0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)
+    elif(dataset == 'ImageNet' or dataset == 'TinyImagenet'):
+        return (0.485, 0.456, 0.406), (0.229, 0.224, 0.225)
+    elif(dataset == 'MNIST'):
+        return (0.1307, ), (0.3081, )
 
-
-class CustomModel(pl.LightningModule):
-    def __init__(self):
-        super(CustomModel, self).__init__()
-        self.sequenceModule = nn.Sequential(
-            nn.Conv2d(1, 3, 4, stride=2), #28 -> 13
-            nn.ReLU(),
-            nn.Conv2d(3, 3, 3), #13 -> 11
-            nn.ReLU(),
-            nn.Conv2d(3, 3, 3), #11 -> 9
-            nn.ReLU(),
-            nn.Conv2d(3, 3, 3), #9 -> 7
-            nn.ReLU(),
-            nn.Conv2d(3, 3, 3), #7 -> 5
-            nn.ReLU(),
-            nn.Conv2d(3, 3, 3), #5 -> 3
-            nn.ReLU(),
-            nn.Conv2d(3, 10, 3), #3 -> 1
-            nn.Flatten()
-        )
-    def forward(self, x):
-        return self.sequenceModule(x)
-
-def create_model(config):
-    if(config["dataset"] == 'CIFAR10' or config["dataset"] == 'MNIST'):
-        config.num_classes = 10
-    elif(config["dataset"] == 'ImageNet'):
-        config.num_classes = 1000
-    model = resnet_models[config['architecture']](weights=False, num_classes=config.num_classes)
-    if(config["dataset"] != 'ImageNet'):
-        model.conv1 = nn.Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
-        model.maxpool = nn.Identity()
-
-    if(config.activation == 'sampling'):
-        for name,child in model.named_children():
-            if(isinstance(child, nn.Sequential)):
-                for sub_name, sub_child in child.named_children():
-                    sub_child.configure_react(SamplingLayer)
+# class NoFCModel(pl.LightningModule):
+#     def __init__(self, config):
+#         super(NoFCModel, self).__init__()
+#         self.config = config
+#         self.config['num_classes'] = 10
+#         if self.config["activation"] == 'relu':
+#             self.module = nn.Sequential(
+#                 nn.Conv2d(1, 3, 4, stride=2), #28 -> 13
+#                 nn.ReLU(),
+#                 nn.Conv2d(3, 3, 3), #13 -> 11
+#                 nn.ReLU(),
+#                 nn.Conv2d(3, 3, 3), #11 -> 9
+#                 nn.ReLU(),
+#                 nn.Conv2d(3, 3, 3), #9 -> 7
+#                 nn.ReLU(),
+#                 nn.Conv2d(3, 3, 3), #7 -> 5
+#                 nn.ReLU(),
+#                 nn.Conv2d(3, 3, 3), #5 -> 3
+#                 nn.ReLU(),
+#                 nn.Conv2d(3, 10, 3), #3 -> 1
+#                 nn.Flatten()
+#             )
+#         else:
+#             self.module = nn.Sequential(
+#                 nn.Conv2d(1, 3, 4, stride=2), #28 -> 13
+#                 nn.ReLU(),
+#                 nn.Conv2d(3, 3, 3), #13 -> 11
+#                 SamplingLayer(),
+#                 nn.Conv2d(3, 3, 3), #11 -> 9
+#                 nn.ReLU(),
+#                 nn.Conv2d(3, 3, 3), #9 -> 7
+#                 SamplingLayer(),
+#                 nn.Conv2d(3, 3, 3), #7 -> 5
+#                 nn.ReLU(),
+#                 nn.Conv2d(3, 3, 3), #5 -> 3
+#                 SamplingLayer(),
+#                 nn.Conv2d(3, 10, 3), #3 -> 1
+#                 nn.Flatten()
+#             )
     
-    return model
+#     def forward(self, x):
+#         return self.module(x)
+
+    
+    
+# class MNISTModel(pl.LightningModule):
+#     def __init__(self, config):
+#         super(MNISTModel, self).__init__()
+#         self.config = config
+#         self.layer1 = nn.Sequential(
+#             nn.Conv2d(1, 16, 5, 1, 2),
+#             nn.BatchNorm2d(16),
+#             nn.ReLU(inplace=True),
+#             nn.Conv2d(16, 64, 3, 1, 1),
+#             nn.BatchNorm2d(64),
+#             nn.ReLU(inplace=True)
+#         )
+        
+#         self.layer2 = nn.Sequential(
+#             nn.Conv2d(64, 64, 3, 1, 1),
+#             nn.BatchNorm2d(64)
+#         )
+        
+#         self.layer3 = nn.Sequential(
+#             nn.Conv2d(64, 128, 3, 1, 1),
+#             nn.BatchNorm2d(128),
+#             nn.ReLU(inplace=True)
+#         )
+        
+#         self.layer4 = nn.Sequential(
+#             nn.Conv2d(128, 128, 3, 1, 1),
+#             nn.BatchNorm2d(128)
+#         )
+#         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+#         self.fc = nn.Linear(128, 10)
+#         self.config['num_classes'] = 10
+#         if self.config['activation'] == 'sampling':
+#             self.sampling = SamplingLayer()
+#         else:
+#             self.sampling = nn.ReLU(inplace=True)
+        
+#     def forward(self, x):
+#         out1 = self.layer1(x)
+        
+#         out2 = self.layer2(out1)
+#         out2 += out1
+#         out2 = self.sampling(out2)
+        
+#         out3 = self.layer3(out2)
+#         out4 = self.layer4(out3)
+#         out4 += out3
+#         out4 = self.sampling(out4)
+        
+#         y = self.avgpool(out4)
+#         y = torch.flatten(y, 1)
+#         y = self.fc(y)
+        
+#         return y
+        
+        
+        
+        
+        
+
+class ModelWrapper(pl.LightningModule):
+    def __init__(self, config):
+        super(ModelWrapper, self).__init__()
+        self.config = config
+        self.cnn = self.create_model(self.config['activation'])
+        mean, std = getDataNormalization(self.config["dataset"])
+        self.normalization = transforms.Normalize(mean, std)
+
+    def create_model(self, activation):
+        if(self.config["dataset"] == 'CIFAR10' or self.config["dataset"] == 'MNIST'):
+            self.config['num_classes'] = 10
+        elif(self.config["dataset"] == 'ImageNet'):
+            self.config['num_classes'] = 1000
+        elif(self.config["dataset"] == 'TinyImagenet'):
+            self.config['num_classes'] = 200
+
+        model = resnet_models[self.config['architecture']](weights=False, num_classes=self.config['num_classes'])
+        if(self.config['dataset'] == 'CIFAR10'):
+            model.conv1 = nn.Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+            model.maxpool = nn.Identity()
+        elif(self.config['dataset'] == 'MNIST'):
+            model.conv1 = nn.Conv2d(1, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+            model.maxpool = nn.Identity()
+
+        if(activation == 'sampling'):
+            for name,child in model.named_children():
+                if(isinstance(child, nn.Sequential)):
+                    for sub_name, sub_child in child.named_children():
+                        sub_child.configure_react(SamplingLayer)
+
+        return model
+
+    def forward(self, x):
+        x = self.normalization(x)
+        return self.cnn(x)
+
+
 
 # define the LightningModule
 class LitAutoEncoder(pl.LightningModule):
@@ -105,11 +217,16 @@ class LitAutoEncoder(pl.LightningModule):
         super().__init__()
         self.config = config
         # self.save_hyperparameters() # sweep 오류시 제거
-
-        if (self.config['architecture'] == "custom"):
-            self.encoder = CustomModel()
-        else: 
-            self.encoder = create_model(self.config)
+        if config["architecture"] == "MLP":
+            self.encoder = MLPMnist(config)
+        elif config["architecture"] == "conv":
+            self.encoder = Layer4Conv(config)
+        elif config["architecture"] == "Net":
+            self.encoder = Net(config)
+        elif config["architecture"] == "3conv":
+            self.encoder = Layer3Conv(config)
+        else:
+            self.encoder = ModelWrapper(config)
         print(self.encoder)
 
     def training_step(self, batch, batch_idx):
@@ -176,7 +293,7 @@ class LitAutoEncoder(pl.LightningModule):
 
 
     def evaluateRobust(self, x, y):
-        adv_images = self.generateAdv(x, y, eps=0.05)
+        adv_images = self.generateAdv(x, y, self.config['eps'])
         logits = self.encoder(adv_images)
         preds = torch.argmax(logits, dim=1)
         acc = accuracy(preds, y, num_classes=self.config["num_classes"], task="multiclass")
@@ -212,13 +329,11 @@ def choose_dataset(config):
             transforms.RandomCrop(32, padding=4),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
-            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
         ])
 
         test_transform = transforms.Compose(
             [
             transforms.ToTensor(),
-            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
         ])
             
         trainset = CIFAR10(root='~/data', train=True,
@@ -239,7 +354,6 @@ def choose_dataset(config):
             transforms.Resize((256, 256)),
             transforms.CenterCrop((224,224)),
             transforms.ToTensor(),
-            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
         ])
 
         data_raw = ImageFolder('~/dataset/ImageNet/2012/ILSVRC2012_img_train', transform=transform)
@@ -249,17 +363,43 @@ def choose_dataset(config):
         # testset = ImageFolder('dataset/ImageNet/2012/ILSVRC2012_img_val', transform=transform)
         testloader = torch.utils.data.DataLoader(testset, batch_size=config['batch_size'], shuffle=False, num_workers =config['num_workers'])
         data = (trainloader, testloader)
+        
+    elif config["dataset"] == "TinyImagenet":
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+        ])
+        data_raw = ImageFolder('./data/tiny-imagenet-200/train', transform=transform)
+        trainset, testset = torch.utils.data.random_split(data_raw, [0.9, 0.1])
+        trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'], shuffle=True, num_workers =config['num_workers'])
+        testloader = torch.utils.data.DataLoader(testset, batch_size=config['batch_size'], shuffle=False, num_workers =config['num_workers'])
+        data = (trainloader, testloader)
+        
+    elif(config["dataset"]=="MNIST"):
+        transform = transforms.Compose(
+            [transforms.ToTensor(),
+        ])
+
+        trainset = MNIST(root='~/data', train=True,
+                                                download=True, transform=transform)
+        trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'],
+                                                shuffle=True, num_workers = config['num_workers'])
+
+        testset = MNIST(root='~/data', train=False,
+                                            download=True, transform=transform)
+        testloader = torch.utils.data.DataLoader(testset, batch_size=config['batch_size'],
+                                                shuffle=False, num_workers = config['num_workers'])
+        data = (trainloader, testloader)
     
     return data
 
 
 
 def train_model():
-    run = wandb.init(project=project_name, entity='kau-quantum')
+    run = wandb.init(project=project_name, entity=entity)
     config = wandb.config
     name_postfix = "reference" if config['activation'] == 'relu' else "ReAct"
     adver = "-adv" if config['adv'] else ''
-    name = config["dataset"] + "-" + config["architecture"] + "-" + name_postfix + "-" + config.optimizer + " lr:" + str(round(config.lr, 4)) + adver
+    name = config["dataset"] + "-" + config["architecture"] + "-" + name_postfix + "-" + config.optimizer + " lr:" + str(round(config.lr, 4)) + adver  + 'eps:' + str(config['eps'])
     run.name = name
     wandb_logger = WandbLogger(config=config, save_code=True, log_model="all")
 
@@ -284,7 +424,8 @@ def train_model():
 
 def main():
     sweep_id = wandb.sweep(sweep_config, project=project_name)
-    wandb.agent(sweep_id=sweep_id, function=train_model, project=project_name, entity='kau-quantum')
+    # sweep_id = "wrpr3elw"
+    wandb.agent(sweep_id=sweep_id, function=train_model, project=project_name, entity=entity)
 
 
 main()

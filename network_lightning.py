@@ -13,10 +13,26 @@ from lightning.pytorch.loggers import WandbLogger, TensorBoardLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
 import torch.optim.lr_scheduler as lr_scheduler
 from torch.optim.lr_scheduler import OneCycleLR
-from models import SamplingLayer, LearnableSamplingLayer
+from models import SamplingLayer
 import wandb
 import os
 import argparse
+import torchattacks
+import numpy as np
+
+def torch_seed(random_seed=0):
+
+    torch.manual_seed(random_seed)
+
+    torch.cuda.manual_seed(random_seed)
+    torch.cuda.manual_seed_all(random_seed) # if use multi-GPU
+
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+    np.random.seed(random_seed)
+
+# torch_seed()
 
 parser = argparse.ArgumentParser(description='ReAct Network Training')
 
@@ -26,9 +42,12 @@ parser.add_argument('--react', action='store_true')
 parser.add_argument('--wandb', action='store_true')
 
 parser.add_argument('--lr', type=float, default=0.001)
+parser.add_argument('--epsilon', type=float, default=8/255)
 parser.add_argument('--optimizer', default="Adam", help="Adam / SGD / AdamW 선택가능")
 parser.add_argument('--batchsize', type=int, default=256)
 parser.add_argument('--lr_scheduler', action='store_true')
+parser.add_argument('--adv', action='store_true')
+parser.add_argument('--replace_all', action='store_true')
 
 args = parser.parse_args()
 
@@ -47,7 +66,8 @@ config = {
     "batch_size" : args.batchsize,
     'activation' : "sampling" if args.react else "relu",
     "num_workers" : int(os.cpu_count() / 2),
-    "lr_scheduler" : args.lr_scheduler
+    "lr_scheduler" : args.lr_scheduler,
+    "adv" : args.adv
     }
 
 print(config)
@@ -63,49 +83,112 @@ if(WANDBLOG):
     wandb_logger = WandbLogger(project='ReAct-Net', entity='kau-quantum',
         config=config, save_code=True, log_model="all", name=config["dataset"] + "-" + config["architecture"] + "-" + name_postfix)
 
-if(config["dataset"] == 'CIFAR10' or config["dataset"] == 'MNIST'):
+if(config["dataset"] == 'CIFAR10'):
     num_classes = 10
+    input_ch = 3
+elif(config["dataset"] == 'MNIST'):
+    num_classes = 10
+    input_ch = 1
 elif(config["dataset"] == 'ImageNet'):
     num_classes = 1000
+    input_ch = 3
 
 # %%
+def getDataNormalization(dataset):
+    if(dataset == 'CIFAR10'):
+        return (0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)
+    elif(dataset == 'ImageNet'):
+        return (0.485, 0.456, 0.406), (0.229, 0.224, 0.225)
+
+class ModelWrapper(pl.LightningModule):
+    def __init__(self, activation):
+        super(ModelWrapper, self).__init__()
+        self.cnn = self.create_model(activation)
+        if(config["dataset"] == 'MNIST'):
+            self.normalization = nn.Identity()
+        else:
+            mean, std = getDataNormalization(config["dataset"])
+            self.normalization = transforms.Normalize(mean, std)
+
+    def create_model(self, activation):
+        model = resnet_models[config['architecture']](weights=False, num_classes=num_classes)
+        if(config['dataset'] != 'ImageNet'):
+            model.conv1 = nn.Conv2d(input_ch, 64, kernel_size=(1, 1), stride=(1, 1), padding=(1, 1), bias=False)
+            model.maxpool = nn.Identity()
+
+        if(activation == 'sampling'):
+            for name,child in model.named_children():
+                if(isinstance(child, nn.Sequential)):
+                    for sub_name, sub_child in child.named_children():
+                        sub_child.configure_react(SamplingLayer, args.replace_all)
+        
+        return model
+
+    def forward(self, x):
+        x = self.normalization(x)
+        return self.cnn(x)
 
 
-class CustomModel(pl.LightningModule):
-    def __init__(self):
-        super(CustomModel, self).__init__()
-        self.sequenceModule = nn.Sequential(
+def mixup_data(x, y):
+    mixup_alpha = 1.0
+    lam = np.random.beta(mixup_alpha, mixup_alpha)
+    batch_size = x.size()[0]
+    index = torch.randperm(batch_size).cuda()
+    mixed_x = lam * x + (1 - lam) * x[index, :]
+    y_a, y_b = y, y[index]
+    return mixed_x, y_a, y_b, lam
+
+def mixup_criterion(criterion, pred, y_a, y_b, lam):
+    return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
+
+
+class MLPMnist(pl.LightningModule):
+    def __init__(self, activation):
+        super(MLPMnist, self).__init__()
+        self.module = nn.Sequential(
             nn.Conv2d(1, 3, 4, stride=2), #28 -> 13
-            nn.ReLU(),
-            nn.Conv2d(3, 3, 3), #13 -> 11
-            nn.ReLU(),
-            nn.Conv2d(3, 3, 3), #11 -> 9
-            nn.ReLU(),
-            nn.Conv2d(3, 3, 3), #9 -> 7
-            nn.ReLU(),
-            nn.Conv2d(3, 3, 3), #7 -> 5
-            nn.ReLU(),
-            nn.Conv2d(3, 3, 3), #5 -> 3
-            nn.ReLU(),
+            SamplingLayer(),
+            nn.Conv2d(3, 3, 7), #13 -> 7
+            SamplingLayer(),
+            nn.Conv2d(3, 3, 5), #7 -> 3
+            SamplingLayer(),
             nn.Conv2d(3, 10, 3), #3 -> 1
             nn.Flatten()
         )
+        # self.module = nn.Sequential(
+        #     nn.Conv2d(1, 3, 4, stride=2), #28 -> 13
+        #     SamplingLayer(),
+        #     nn.Conv2d(3, 3, 3), #13 -> 11
+        #     SamplingLayer(),
+        #     nn.Conv2d(3, 3, 3), #11 -> 9
+        #     SamplingLayer(),
+        #     nn.Conv2d(3, 3, 3), #9 -> 7
+        #     SamplingLayer(),
+        #     nn.Conv2d(3, 3, 3), #7 -> 5
+        #     SamplingLayer(),
+        #     nn.Conv2d(3, 3, 3), #5 -> 3
+        #     SamplingLayer(),
+        #     nn.Conv2d(3, 10, 3), #3 -> 1
+        #     nn.Flatten()
+        # )
+        # if activation == 'relu':
+        #     self.activation = nn.ReLU(inplace=True)
+        # else:
+        #     self.activation = SamplingLayer(100)
+        # self.input_layer = nn.Linear(784, 100)
+        # self.output_layer = nn.Linear(100, 10)
+
     def forward(self, x):
-        return self.sequenceModule(x)
+        # x = torch.flatten(x, 1)
+        # x = self.input_layer(x)
+        # x = self.activation(x)
+        # x = self.output_layer(x)
+        
+        x = self.module(x)
+        # print(x)
+        return x
 
-def create_model(activation):
-    model = resnet_models[config['architecture']](weights=False, num_classes=num_classes)
-    if(config['dataset'] != 'ImageNet'):
-        model.conv1 = nn.Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
-        model.maxpool = nn.Identity()
 
-    if(activation == 'sampling'):
-        for name,child in model.named_children():
-            if(isinstance(child, nn.Sequential)):
-                for sub_name, sub_child in child.named_children():
-                    sub_child.configure_react(SamplingLayer)
-    
-    return model
 
 # define the LightningModule
 class LitAutoEncoder(pl.LightningModule):
@@ -113,22 +196,38 @@ class LitAutoEncoder(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters()
 
-        if (config['architecture'] == "custom"):
-            self.encoder = CustomModel()
-        else: 
-            self.encoder = create_model(activation)
+        # self.encoder = ModelWrapper(activation)
+        self.encoder = MLPMnist(activation)
         print(self.encoder)
 
     def training_step(self, batch, batch_idx):
         # training_step defines the train loop.
         # it is independent of forward
         x, y = batch
-        z = self.encoder(x)
-        loss = nn.functional.cross_entropy(z, y)
-        # Logging to TensorBoard (if installed) by default
-        self.log("train_loss", loss)
-        # print(loss)
-        return loss
+
+
+        if(config['adv']):
+            
+            benign_inputs, benign_targets_a, benign_targets_b, benign_lam = mixup_data(x, y)
+            benign_outputs = self.encoder(benign_inputs)
+            loss1 = mixup_criterion(nn.functional.cross_entropy, benign_outputs, benign_targets_a, benign_targets_b, benign_lam)
+
+
+            advExample = self.generateAdv(x, y, args.epsilon)
+            adv_inputs, adv_targets_a, adv_targets_b, adv_lam = mixup_data(advExample, y)
+            advZ = self.encoder(adv_inputs)
+            loss2 = mixup_criterion(nn.functional.cross_entropy, advZ, adv_targets_a, adv_targets_b, adv_lam)
+
+            self.log("train_loss", (loss1 + loss2) / 2)
+
+            return (loss1 + loss2) / 2
+        else:
+            z = self.encoder(x)
+            loss = nn.functional.cross_entropy(z, y)
+            # Logging to TensorBoard (if installed) by default
+            self.log("train_loss", loss)
+            # print(loss)
+            return loss
 
     def configure_optimizers(self):
         if(config['optimizer'] == "Adam"):
@@ -164,16 +263,31 @@ class LitAutoEncoder(pl.LightningModule):
         else:
             return {"optimizer": optimizer, "monitor": "val_acc"}
     
+    def generateAdv(self, x, y, eps = 0.0314, alpha=0.00784, steps=3):
+        with torch.enable_grad():
+            atk = torchattacks.PGD(self.encoder, eps=eps, alpha=alpha, steps=steps)
+            adv_images = atk(x, y)
+        return adv_images
+    
+    def evaluateRobust(self, x, y):
+        adv_images = self.generateAdv(x, y, args.epsilon)
+        logits = self.encoder(adv_images)
+        preds = torch.argmax(logits, dim=1)
+        acc = accuracy(preds, y, num_classes=num_classes, task="multiclass")
+        self.log("Robust_acc", acc, prog_bar=True, sync_dist=True)
+    
     def evaluate(self, batch, stage=None):
         x, y = batch
         logits = self.encoder(x)
         loss = nn.functional.cross_entropy(logits, y)
         preds = torch.argmax(logits, dim=1)
         acc = accuracy(preds, y, num_classes=num_classes, task="multiclass")
-
+        
         if stage:
             self.log(f"{stage}_loss", loss, prog_bar=True, sync_dist=True)
             self.log(f"{stage}_acc", acc, prog_bar=True, sync_dist=True)
+            if(config['adv']):
+                self.evaluateRobust(x, y)
 
     def validation_step(self, batch, batch_idx):
         self.evaluate(batch, "val")
@@ -197,13 +311,11 @@ if(config["dataset"]=="CIFAR10"):
         transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
-        transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
         ])
 
     test_transform = transforms.Compose(
         [
         transforms.ToTensor(),
-        transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
         ])
         
     trainset = CIFAR10(root='~/data', train=True,
@@ -236,7 +348,6 @@ elif(config["dataset"]=="ImageNet"):
         transforms.Resize((256, 256)),
         transforms.CenterCrop((224,224)),
         transforms.ToTensor(),
-        transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
     ])
 
     data_raw = ImageFolder('~/dataset/ImageNet/2012/ILSVRC2012_img_train', transform=transform)
