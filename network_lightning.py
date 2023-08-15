@@ -99,6 +99,7 @@ def getDataNormalization(dataset):
         return (0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)
     elif(dataset == 'ImageNet'):
         return (0.485, 0.456, 0.406), (0.229, 0.224, 0.225)
+<<<<<<< HEAD
 
 class ModelWrapper(pl.LightningModule):
     def __init__(self, activation):
@@ -189,6 +190,49 @@ class MLPMnist(pl.LightningModule):
         return x
 
 
+=======
+
+class ModelWrapper(pl.LightningModule):
+    def __init__(self, activation):
+        super(ModelWrapper, self).__init__()
+        self.cnn = self.create_model(activation)
+        if(config["dataset"] == 'MNIST'):
+            self.normalization = nn.Identity()
+        else:
+            mean, std = getDataNormalization(config["dataset"])
+            self.normalization = transforms.Normalize(mean, std)
+
+    def create_model(self, activation):
+        model = resnet_models[config['architecture']](weights=False, num_classes=num_classes)
+        if(config['dataset'] != 'ImageNet'):
+            model.conv1 = nn.Conv2d(input_ch, 64, kernel_size=(1, 1), stride=(1, 1), padding=(1, 1), bias=False)
+            model.maxpool = nn.Identity()
+
+        if(activation == 'sampling'):
+            for name,child in model.named_children():
+                if(isinstance(child, nn.Sequential)):
+                    for sub_name, sub_child in child.named_children():
+                        sub_child.configure_react(SamplingLayer, args.replace_all)
+        
+        return model
+
+    def forward(self, x):
+        x = self.normalization(x)
+        return self.cnn(x)
+
+
+def mixup_data(x, y):
+    mixup_alpha = 1.0
+    lam = np.random.beta(mixup_alpha, mixup_alpha)
+    batch_size = x.size()[0]
+    index = torch.randperm(batch_size).cuda()
+    mixed_x = lam * x + (1 - lam) * x[index, :]
+    y_a, y_b = y, y[index]
+    return mixed_x, y_a, y_b, lam
+
+def mixup_criterion(criterion, pred, y_a, y_b, lam):
+    return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
+>>>>>>> 71936f686f19c4941c35d2d67021d9dc3ace522a
 
 # define the LightningModule
 class LitAutoEncoder(pl.LightningModule):
@@ -196,8 +240,12 @@ class LitAutoEncoder(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters()
 
+<<<<<<< HEAD
         # self.encoder = ModelWrapper(activation)
         self.encoder = MLPMnist(activation)
+=======
+        self.encoder = ModelWrapper(activation)
+>>>>>>> 71936f686f19c4941c35d2d67021d9dc3ace522a
         print(self.encoder)
 
     def training_step(self, batch, batch_idx):

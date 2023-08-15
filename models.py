@@ -24,6 +24,7 @@ class SamplingLayer(pl.LightningModule):
             output_std = self.std / torch.sqrt(torch.tensor(x.shape[-1])).detach()
             epsilon = torch.randn_like(x)
             return x + output_std.to(self.device) * epsilon.to(self.device)
+<<<<<<< HEAD
 
         
 
@@ -140,3 +141,8 @@ class Layer3Conv(pl.LightningModule):
     def forward(self, x):
         x = self.module(x)
         return x
+=======
+
+        
+        
+>>>>>>> 71936f686f19c4941c35d2d67021d9dc3ace522a
