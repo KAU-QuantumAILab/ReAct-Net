@@ -11,8 +11,17 @@ from torchmetrics.functional import accuracy
 from lightning.pytorch.loggers import WandbLogger, TensorBoardLogger 
 from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
 import torch.optim.lr_scheduler as lr_scheduler
+<<<<<<< HEAD
 from torch.optim.lr_scheduler import OneCycleLR, CosineAnnealingLR
 from models import SamplingLayer, MLPMnist, Layer4Conv, Net
+=======
+from torch.optim.lr_scheduler import OneCycleLR
+<<<<<<< HEAD
+from models import SamplingLayer, MLPMnist, Layer4Conv, Net, Layer3Conv
+=======
+from models import SamplingLayer, LearnableSamplingLayer
+>>>>>>> 71936f686f19c4941c35d2d67021d9dc3ace522a
+>>>>>>> be889062aea6abda1e862b394fbb7cc77981c2b4
 import wandb
 import os
 import argparse
@@ -29,7 +38,15 @@ parser = argparse.ArgumentParser(
     description='reAct sweep with yaml \n usage: nl_sweep_yaml.py --yaml [yaml_path] --devices 0 --project_name [pname] -- entity [ename]\n')
 
 parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
+<<<<<<< HEAD
 parser.add_argument('--project_name', default="MLP_MNIST", help='wandb project name')
+=======
+<<<<<<< HEAD
+parser.add_argument('--project_name', default="reAct_sweep_Tiny50", help='wandb project name')
+=======
+parser.add_argument('--project_name', default="reAct_sweep_MNIST_noFC", help='wandb project name')
+>>>>>>> 71936f686f19c4941c35d2d67021d9dc3ace522a
+>>>>>>> be889062aea6abda1e862b394fbb7cc77981c2b4
 parser.add_argument('--entity', default='kau-quantum', help='wandb entity name')
 parser.add_argument('--devices', default=0, type=int, help='choose the CUDA(ex: 0, 1, 2, -1)')
 
@@ -64,12 +81,15 @@ resnet_models = {
 def getDataNormalization(dataset):
     if(dataset == 'CIFAR10'):
         return (0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)
-    elif(dataset == 'ImageNet'):
+    elif(dataset == 'ImageNet' or dataset == 'TinyImagenet'):
         return (0.485, 0.456, 0.406), (0.229, 0.224, 0.225)
     elif(dataset == 'MNIST'):
         return (0.1307, ), (0.3081, )
+<<<<<<< HEAD
     elif(dataset == 'TinyImagenet'):
         return (0.4802, 0.4481, 0.3975), (0.2302, 0.2265, 0.2262)
+=======
+>>>>>>> be889062aea6abda1e862b394fbb7cc77981c2b4
 
 # class NoFCModel(pl.LightningModule):
 #     def __init__(self, config):
@@ -188,8 +208,16 @@ class ModelWrapper(pl.LightningModule):
             self.config['num_classes'] = 10
         elif(self.config["dataset"] == 'ImageNet'):
             self.config['num_classes'] = 1000
+<<<<<<< HEAD
         elif(self.config["dataset"] == 'TinyImagenet'):
             self.config['num_classes'] = 200
+=======
+<<<<<<< HEAD
+        elif(self.config["dataset"] == 'TinyImagenet'):
+            self.config['num_classes'] = 200
+=======
+>>>>>>> 71936f686f19c4941c35d2d67021d9dc3ace522a
+>>>>>>> be889062aea6abda1e862b394fbb7cc77981c2b4
 
         model = resnet_models[self.config['architecture']](weights=False, num_classes=self.config['num_classes'])
         if(self.config['dataset'] == 'CIFAR10' or self.config['dataset'] == 'TinyImagenet'):
@@ -219,12 +247,25 @@ class LitAutoEncoder(pl.LightningModule):
         super().__init__()
         self.config = config
         # self.save_hyperparameters() # sweep 오류시 제거
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> be889062aea6abda1e862b394fbb7cc77981c2b4
         if config["architecture"] == "MLP":
             self.encoder = MLPMnist(config)
         elif config["architecture"] == "conv":
             self.encoder = Layer4Conv(config)
         elif config["architecture"] == "Net":
             self.encoder = Net(config)
+<<<<<<< HEAD
+=======
+        elif config["architecture"] == "3conv":
+            self.encoder = Layer3Conv(config)
+=======
+        if config["architecture"] == "custom":
+            self.encoder = NoFCModel(config)
+>>>>>>> 71936f686f19c4941c35d2d67021d9dc3ace522a
+>>>>>>> be889062aea6abda1e862b394fbb7cc77981c2b4
         else:
             self.encoder = ModelWrapper(config)
         print(self.encoder)
@@ -300,7 +341,15 @@ class LitAutoEncoder(pl.LightningModule):
 
 
     def evaluateRobust(self, x, y):
+<<<<<<< HEAD
         adv_images = self.generateAdv(x, y, self.config['eps'])
+=======
+<<<<<<< HEAD
+        adv_images = self.generateAdv(x, y, self.config['eps'])
+=======
+        adv_images = self.generateAdv(x, y, eps=0.05)
+>>>>>>> 71936f686f19c4941c35d2d67021d9dc3ace522a
+>>>>>>> be889062aea6abda1e862b394fbb7cc77981c2b4
         logits = self.encoder(adv_images)
         preds = torch.argmax(logits, dim=1)
         acc = accuracy(preds, y, num_classes=self.config["num_classes"], task="multiclass")
@@ -384,6 +433,19 @@ def choose_dataset(config):
         testloader = torch.utils.data.DataLoader(testset, batch_size=config['batch_size'], shuffle=False, num_workers =config['num_workers'])
         data = (trainloader, testloader)
         
+<<<<<<< HEAD
+    elif config["dataset"] == "TinyImagenet":
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+        ])
+        data_raw = ImageFolder('./data/tiny-imagenet-200/train', transform=transform)
+        trainset, testset = torch.utils.data.random_split(data_raw, [0.9, 0.1])
+        trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'], shuffle=True, num_workers =config['num_workers'])
+        testloader = torch.utils.data.DataLoader(testset, batch_size=config['batch_size'], shuffle=False, num_workers =config['num_workers'])
+        data = (trainloader, testloader)
+        
+=======
+>>>>>>> 71936f686f19c4941c35d2d67021d9dc3ace522a
     elif(config["dataset"]=="MNIST"):
         transform = transforms.Compose(
             [transforms.ToTensor(),
@@ -407,12 +469,21 @@ def choose_dataset(config):
 def train_model():
     run = wandb.init(project=project_name, entity=entity)
     config = wandb.config
+<<<<<<< HEAD
     wandb.define_metric("val_acc", summary="max")
     wandb.define_metric("Robust_acc", summary="max")
     # name_postfix = "reference" if config['activation'] == 'relu' else "ReAct"
     name_postfix = config['activation']
     adver = "-adv" + 'eps:' + str(config['eps']) if config['adv'] else ''
+=======
+    name_postfix = "reference" if config['activation'] == 'relu' else "ReAct"
+    adver = "-adv" if config['adv'] else ''
+<<<<<<< HEAD
+    name = config["dataset"] + "-" + config["architecture"] + "-" + name_postfix + "-" + config.optimizer + " lr:" + str(round(config.lr, 4)) + adver  + 'eps:' + str(config['eps'])
+=======
+>>>>>>> be889062aea6abda1e862b394fbb7cc77981c2b4
     name = config["dataset"] + "-" + config["architecture"] + "-" + name_postfix + "-" + config.optimizer + " lr:" + str(round(config.lr, 4)) + adver
+>>>>>>> 71936f686f19c4941c35d2d67021d9dc3ace522a
     run.name = name
     wandb_logger = WandbLogger(config=config, save_code=True, log_model="all")
 
@@ -437,7 +508,14 @@ def train_model():
 
 def main():
     sweep_id = wandb.sweep(sweep_config, project=project_name)
+<<<<<<< HEAD
     # sweep_id = "gt3qp3cj"
+=======
+<<<<<<< HEAD
+    # sweep_id = "wrpr3elw"
+=======
+>>>>>>> 71936f686f19c4941c35d2d67021d9dc3ace522a
+>>>>>>> be889062aea6abda1e862b394fbb7cc77981c2b4
     wandb.agent(sweep_id=sweep_id, function=train_model, project=project_name, entity=entity)
 
 
