@@ -11,8 +11,8 @@ from torchmetrics.functional import accuracy
 from lightning.pytorch.loggers import WandbLogger, TensorBoardLogger 
 from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
 import torch.optim.lr_scheduler as lr_scheduler
-from torch.optim.lr_scheduler import OneCycleLR
-from models import SamplingLayer, LearnableSamplingLayer
+from torch.optim.lr_scheduler import OneCycleLR, CosineAnnealingLR
+from models import SamplingLayer, MLPMnist, Layer4Conv, Net
 import wandb
 import os
 import argparse
@@ -29,7 +29,7 @@ parser = argparse.ArgumentParser(
     description='reAct sweep with yaml \n usage: nl_sweep_yaml.py --yaml [yaml_path] --devices 0 --project_name [pname] -- entity [ename]\n')
 
 parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
-parser.add_argument('--project_name', default="reAct_sweep_MNIST_noFC", help='wandb project name')
+parser.add_argument('--project_name', default="MLP_MNIST", help='wandb project name')
 parser.add_argument('--entity', default='kau-quantum', help='wandb entity name')
 parser.add_argument('--devices', default=0, type=int, help='choose the CUDA(ex: 0, 1, 2, -1)')
 
@@ -68,105 +68,107 @@ def getDataNormalization(dataset):
         return (0.485, 0.456, 0.406), (0.229, 0.224, 0.225)
     elif(dataset == 'MNIST'):
         return (0.1307, ), (0.3081, )
+    elif(dataset == 'TinyImagenet'):
+        return (0.4802, 0.4481, 0.3975), (0.2302, 0.2265, 0.2262)
 
-class NoFCModel(pl.LightningModule):
-    def __init__(self, config):
-        super(NoFCModel, self).__init__()
-        self.config = config
-        self.config['num_classes'] = 10
-        if self.config["activation"] == 'relu':
-            self.module = nn.Sequential(
-                nn.Conv2d(1, 3, 4, stride=2), #28 -> 13
-                nn.ReLU(),
-                nn.Conv2d(3, 3, 3), #13 -> 11
-                nn.ReLU(),
-                nn.Conv2d(3, 3, 3), #11 -> 9
-                nn.ReLU(),
-                nn.Conv2d(3, 3, 3), #9 -> 7
-                nn.ReLU(),
-                nn.Conv2d(3, 3, 3), #7 -> 5
-                nn.ReLU(),
-                nn.Conv2d(3, 3, 3), #5 -> 3
-                nn.ReLU(),
-                nn.Conv2d(3, 10, 3), #3 -> 1
-                nn.Flatten()
-            )
-        else:
-            self.module = nn.Sequential(
-                nn.Conv2d(1, 3, 4, stride=2), #28 -> 13
-                nn.ReLU(),
-                nn.Conv2d(3, 3, 3), #13 -> 11
-                SamplingLayer(),
-                nn.Conv2d(3, 3, 3), #11 -> 9
-                nn.ReLU(),
-                nn.Conv2d(3, 3, 3), #9 -> 7
-                SamplingLayer(),
-                nn.Conv2d(3, 3, 3), #7 -> 5
-                nn.ReLU(),
-                nn.Conv2d(3, 3, 3), #5 -> 3
-                SamplingLayer(),
-                nn.Conv2d(3, 10, 3), #3 -> 1
-                nn.Flatten()
-            )
+# class NoFCModel(pl.LightningModule):
+#     def __init__(self, config):
+#         super(NoFCModel, self).__init__()
+#         self.config = config
+#         self.config['num_classes'] = 10
+#         if self.config["activation"] == 'relu':
+#             self.module = nn.Sequential(
+#                 nn.Conv2d(1, 3, 4, stride=2), #28 -> 13
+#                 nn.ReLU(),
+#                 nn.Conv2d(3, 3, 3), #13 -> 11
+#                 nn.ReLU(),
+#                 nn.Conv2d(3, 3, 3), #11 -> 9
+#                 nn.ReLU(),
+#                 nn.Conv2d(3, 3, 3), #9 -> 7
+#                 nn.ReLU(),
+#                 nn.Conv2d(3, 3, 3), #7 -> 5
+#                 nn.ReLU(),
+#                 nn.Conv2d(3, 3, 3), #5 -> 3
+#                 nn.ReLU(),
+#                 nn.Conv2d(3, 10, 3), #3 -> 1
+#                 nn.Flatten()
+#             )
+#         else:
+#             self.module = nn.Sequential(
+#                 nn.Conv2d(1, 3, 4, stride=2), #28 -> 13
+#                 nn.ReLU(),
+#                 nn.Conv2d(3, 3, 3), #13 -> 11
+#                 SamplingLayer(),
+#                 nn.Conv2d(3, 3, 3), #11 -> 9
+#                 nn.ReLU(),
+#                 nn.Conv2d(3, 3, 3), #9 -> 7
+#                 SamplingLayer(),
+#                 nn.Conv2d(3, 3, 3), #7 -> 5
+#                 nn.ReLU(),
+#                 nn.Conv2d(3, 3, 3), #5 -> 3
+#                 SamplingLayer(),
+#                 nn.Conv2d(3, 10, 3), #3 -> 1
+#                 nn.Flatten()
+#             )
     
-    def forward(self, x):
-        return self.module(x)
+#     def forward(self, x):
+#         return self.module(x)
 
     
     
-class MNISTModel(pl.LightningModule):
-    def __init__(self, config):
-        super(MNISTModel, self).__init__()
-        self.config = config
-        self.layer1 = nn.Sequential(
-            nn.Conv2d(1, 16, 5, 1, 2),
-            nn.BatchNorm2d(16),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(16, 64, 3, 1, 1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True)
-        )
+# class MNISTModel(pl.LightningModule):
+#     def __init__(self, config):
+#         super(MNISTModel, self).__init__()
+#         self.config = config
+#         self.layer1 = nn.Sequential(
+#             nn.Conv2d(1, 16, 5, 1, 2),
+#             nn.BatchNorm2d(16),
+#             nn.ReLU(inplace=True),
+#             nn.Conv2d(16, 64, 3, 1, 1),
+#             nn.BatchNorm2d(64),
+#             nn.ReLU(inplace=True)
+#         )
         
-        self.layer2 = nn.Sequential(
-            nn.Conv2d(64, 64, 3, 1, 1),
-            nn.BatchNorm2d(64)
-        )
+#         self.layer2 = nn.Sequential(
+#             nn.Conv2d(64, 64, 3, 1, 1),
+#             nn.BatchNorm2d(64)
+#         )
         
-        self.layer3 = nn.Sequential(
-            nn.Conv2d(64, 128, 3, 1, 1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True)
-        )
+#         self.layer3 = nn.Sequential(
+#             nn.Conv2d(64, 128, 3, 1, 1),
+#             nn.BatchNorm2d(128),
+#             nn.ReLU(inplace=True)
+#         )
         
-        self.layer4 = nn.Sequential(
-            nn.Conv2d(128, 128, 3, 1, 1),
-            nn.BatchNorm2d(128)
-        )
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(128, 10)
-        self.config['num_classes'] = 10
-        if self.config['activation'] == 'sampling':
-            self.sampling = SamplingLayer()
-        else:
-            self.sampling = nn.ReLU(inplace=True)
+#         self.layer4 = nn.Sequential(
+#             nn.Conv2d(128, 128, 3, 1, 1),
+#             nn.BatchNorm2d(128)
+#         )
+#         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+#         self.fc = nn.Linear(128, 10)
+#         self.config['num_classes'] = 10
+#         if self.config['activation'] == 'sampling':
+#             self.sampling = SamplingLayer()
+#         else:
+#             self.sampling = nn.ReLU(inplace=True)
         
-    def forward(self, x):
-        out1 = self.layer1(x)
+#     def forward(self, x):
+#         out1 = self.layer1(x)
         
-        out2 = self.layer2(out1)
-        out2 += out1
-        out2 = self.sampling(out2)
+#         out2 = self.layer2(out1)
+#         out2 += out1
+#         out2 = self.sampling(out2)
         
-        out3 = self.layer3(out2)
-        out4 = self.layer4(out3)
-        out4 += out3
-        out4 = self.sampling(out4)
+#         out3 = self.layer3(out2)
+#         out4 = self.layer4(out3)
+#         out4 += out3
+#         out4 = self.sampling(out4)
         
-        y = self.avgpool(out4)
-        y = torch.flatten(y, 1)
-        y = self.fc(y)
+#         y = self.avgpool(out4)
+#         y = torch.flatten(y, 1)
+#         y = self.fc(y)
         
-        return y
+#         return y
         
         
         
@@ -186,9 +188,11 @@ class ModelWrapper(pl.LightningModule):
             self.config['num_classes'] = 10
         elif(self.config["dataset"] == 'ImageNet'):
             self.config['num_classes'] = 1000
+        elif(self.config["dataset"] == 'TinyImagenet'):
+            self.config['num_classes'] = 200
 
         model = resnet_models[self.config['architecture']](weights=False, num_classes=self.config['num_classes'])
-        if(self.config['dataset'] == 'CIFAR10'):
+        if(self.config['dataset'] == 'CIFAR10' or self.config['dataset'] == 'TinyImagenet'):
             model.conv1 = nn.Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
             model.maxpool = nn.Identity()
         elif(self.config['dataset'] == 'MNIST'):
@@ -215,8 +219,12 @@ class LitAutoEncoder(pl.LightningModule):
         super().__init__()
         self.config = config
         # self.save_hyperparameters() # sweep 오류시 제거
-        if config["architecture"] == "custom":
-            self.encoder = NoFCModel(config)
+        if config["architecture"] == "MLP":
+            self.encoder = MLPMnist(config)
+        elif config["architecture"] == "conv":
+            self.encoder = Layer4Conv(config)
+        elif config["architecture"] == "Net":
+            self.encoder = Net(config)
         else:
             self.encoder = ModelWrapper(config)
         print(self.encoder)
@@ -272,6 +280,13 @@ class LitAutoEncoder(pl.LightningModule):
                 ),
                 "interval": "step",
             }
+            # scheduler_dict = {
+            #     "scheduler": CosineAnnealingLR(
+            #         optimizer,
+            #         100,
+            #     ),
+            #     "interval": "epoch",
+            # }
             return {"optimizer": optimizer, "lr_scheduler" : scheduler_dict, "monitor": "val_acc"}
         else:
             return {"optimizer": optimizer, "monitor": "val_acc"}
@@ -285,7 +300,7 @@ class LitAutoEncoder(pl.LightningModule):
 
 
     def evaluateRobust(self, x, y):
-        adv_images = self.generateAdv(x, y, eps=0.05)
+        adv_images = self.generateAdv(x, y, self.config['eps'])
         logits = self.encoder(adv_images)
         preds = torch.argmax(logits, dim=1)
         acc = accuracy(preds, y, num_classes=self.config["num_classes"], task="multiclass")
@@ -355,6 +370,19 @@ def choose_dataset(config):
         # testset = ImageFolder('dataset/ImageNet/2012/ILSVRC2012_img_val', transform=transform)
         testloader = torch.utils.data.DataLoader(testset, batch_size=config['batch_size'], shuffle=False, num_workers =config['num_workers'])
         data = (trainloader, testloader)
+
+    elif config["dataset"] == "TinyImagenet":
+        transform = transforms.Compose([
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomResizedCrop(64),
+            transforms.ToTensor(),
+
+        ])
+        data_raw = ImageFolder('~/data/tiny-imagenet-200/train', transform=transform)
+        trainset, testset = torch.utils.data.random_split(data_raw, [0.9, 0.1])
+        trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'], shuffle=True, num_workers =config['num_workers'])
+        testloader = torch.utils.data.DataLoader(testset, batch_size=config['batch_size'], shuffle=False, num_workers =config['num_workers'])
+        data = (trainloader, testloader)
         
     elif(config["dataset"]=="MNIST"):
         transform = transforms.Compose(
@@ -379,8 +407,11 @@ def choose_dataset(config):
 def train_model():
     run = wandb.init(project=project_name, entity=entity)
     config = wandb.config
-    name_postfix = "reference" if config['activation'] == 'relu' else "ReAct"
-    adver = "-adv" if config['adv'] else ''
+    wandb.define_metric("val_acc", summary="max")
+    wandb.define_metric("Robust_acc", summary="max")
+    # name_postfix = "reference" if config['activation'] == 'relu' else "ReAct"
+    name_postfix = config['activation']
+    adver = "-adv" + 'eps:' + str(config['eps']) if config['adv'] else ''
     name = config["dataset"] + "-" + config["architecture"] + "-" + name_postfix + "-" + config.optimizer + " lr:" + str(round(config.lr, 4)) + adver
     run.name = name
     wandb_logger = WandbLogger(config=config, save_code=True, log_model="all")
@@ -406,6 +437,7 @@ def train_model():
 
 def main():
     sweep_id = wandb.sweep(sweep_config, project=project_name)
+    # sweep_id = "gt3qp3cj"
     wandb.agent(sweep_id=sweep_id, function=train_model, project=project_name, entity=entity)
 
 

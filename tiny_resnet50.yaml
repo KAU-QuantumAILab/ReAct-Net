@@ -1,0 +1,33 @@
+program: nl_sweep_yaml.py
+method: grid
+name: sweep_TinyImagenet_resnet50_SGD_adv
+metric:
+  goal: minimize
+  name: val_loss
+
+parameters:
+  architecture:
+    value: "resnet50"
+  dataset:
+    value: "TinyImagenet"
+  lr:
+    values: [0.1, 0.3, 0.05]
+  activation:
+    values: ["sampling", "relu"]
+  optimizer: 
+    value: "SGD"
+  momentum:
+    values: [0, 0.9, 0.5]
+  batch_size:
+    value: 256
+  num_workers:
+    value: 24
+  lr_scheduler:
+    values: [True, False]
+  epochs:
+    value: 300
+  adv:
+    values: [True]
+  eps:
+    values: [0.03]
+  
