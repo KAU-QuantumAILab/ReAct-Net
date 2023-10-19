@@ -6,3 +6,6 @@ wandb
 *.yaml
 *.ckpt
 *.json
+data
+atk_test.ipynb
+make_model.py
