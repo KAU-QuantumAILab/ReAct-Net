@@ -12,7 +12,7 @@ from lightning.pytorch.loggers import WandbLogger, TensorBoardLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
 import torch.optim.lr_scheduler as lr_scheduler
 from torch.optim.lr_scheduler import OneCycleLR
-from models import SamplingLayer, MLPMnist, Layer4Conv, Net, Layer3Conv
+from models import SamplingLayer, MLPMnist, Layer4Conv, Net, Layer3Conv, BReLU, Leaky_BReLU
 import wandb
 import os
 import argparse
@@ -29,7 +29,7 @@ parser = argparse.ArgumentParser(
     description='reAct sweep with yaml \n usage: nl_sweep_yaml.py --yaml [yaml_path] --devices 0 --project_name [pname] -- entity [ename]\n')
 
 parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
-parser.add_argument('--project_name', default="MLP_MNIST", help='wandb project name')
+parser.add_argument('--project_name', default="Brelu", help='wandb project name')
 parser.add_argument('--entity', default='kau-quantum', help='wandb entity name')
 parser.add_argument('--devices', default=0, type=int, help='choose the CUDA(ex: 0, 1, 2, -1)')
 
@@ -71,109 +71,6 @@ def getDataNormalization(dataset):
     elif(dataset == 'TinyImagenet'):
         return (0.4802, 0.4481, 0.3975), (0.2302, 0.2265, 0.2262)
 
-# class NoFCModel(pl.LightningModule):
-#     def __init__(self, config):
-#         super(NoFCModel, self).__init__()
-#         self.config = config
-#         self.config['num_classes'] = 10
-#         if self.config["activation"] == 'relu':
-#             self.module = nn.Sequential(
-#                 nn.Conv2d(1, 3, 4, stride=2), #28 -> 13
-#                 nn.ReLU(),
-#                 nn.Conv2d(3, 3, 3), #13 -> 11
-#                 nn.ReLU(),
-#                 nn.Conv2d(3, 3, 3), #11 -> 9
-#                 nn.ReLU(),
-#                 nn.Conv2d(3, 3, 3), #9 -> 7
-#                 nn.ReLU(),
-#                 nn.Conv2d(3, 3, 3), #7 -> 5
-#                 nn.ReLU(),
-#                 nn.Conv2d(3, 3, 3), #5 -> 3
-#                 nn.ReLU(),
-#                 nn.Conv2d(3, 10, 3), #3 -> 1
-#                 nn.Flatten()
-#             )
-#         else:
-#             self.module = nn.Sequential(
-#                 nn.Conv2d(1, 3, 4, stride=2), #28 -> 13
-#                 nn.ReLU(),
-#                 nn.Conv2d(3, 3, 3), #13 -> 11
-#                 SamplingLayer(),
-#                 nn.Conv2d(3, 3, 3), #11 -> 9
-#                 nn.ReLU(),
-#                 nn.Conv2d(3, 3, 3), #9 -> 7
-#                 SamplingLayer(),
-#                 nn.Conv2d(3, 3, 3), #7 -> 5
-#                 nn.ReLU(),
-#                 nn.Conv2d(3, 3, 3), #5 -> 3
-#                 SamplingLayer(),
-#                 nn.Conv2d(3, 10, 3), #3 -> 1
-#                 nn.Flatten()
-#             )
-    
-#     def forward(self, x):
-#         return self.module(x)
-
-    
-    
-# class MNISTModel(pl.LightningModule):
-#     def __init__(self, config):
-#         super(MNISTModel, self).__init__()
-#         self.config = config
-#         self.layer1 = nn.Sequential(
-#             nn.Conv2d(1, 16, 5, 1, 2),
-#             nn.BatchNorm2d(16),
-#             nn.ReLU(inplace=True),
-#             nn.Conv2d(16, 64, 3, 1, 1),
-#             nn.BatchNorm2d(64),
-#             nn.ReLU(inplace=True)
-#         )
-        
-#         self.layer2 = nn.Sequential(
-#             nn.Conv2d(64, 64, 3, 1, 1),
-#             nn.BatchNorm2d(64)
-#         )
-        
-#         self.layer3 = nn.Sequential(
-#             nn.Conv2d(64, 128, 3, 1, 1),
-#             nn.BatchNorm2d(128),
-#             nn.ReLU(inplace=True)
-#         )
-        
-#         self.layer4 = nn.Sequential(
-#             nn.Conv2d(128, 128, 3, 1, 1),
-#             nn.BatchNorm2d(128)
-#         )
-#         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-#         self.fc = nn.Linear(128, 10)
-#         self.config['num_classes'] = 10
-#         if self.config['activation'] == 'sampling':
-#             self.sampling = SamplingLayer()
-#         else:
-#             self.sampling = nn.ReLU(inplace=True)
-        
-#     def forward(self, x):
-#         out1 = self.layer1(x)
-        
-#         out2 = self.layer2(out1)
-#         out2 += out1
-#         out2 = self.sampling(out2)
-        
-#         out3 = self.layer3(out2)
-#         out4 = self.layer4(out3)
-#         out4 += out3
-#         out4 = self.sampling(out4)
-        
-#         y = self.avgpool(out4)
-#         y = torch.flatten(y, 1)
-#         y = self.fc(y)
-        
-#         return y
-        
-        
-        
-        
-        
 
 class ModelWrapper(pl.LightningModule):
     def __init__(self, config):
@@ -203,7 +100,19 @@ class ModelWrapper(pl.LightningModule):
             for name,child in model.named_children():
                 if(isinstance(child, nn.Sequential)):
                     for sub_name, sub_child in child.named_children():
-                        sub_child.configure_react(SamplingLayer)
+                        sub_child.configure_react(SamplingLayer, replaceAll=self.config.get('replaceAll'))
+
+        elif(activation == 'brelu'):
+            for name,child in model.named_children():
+                if(isinstance(child, nn.Sequential)):
+                    for sub_name, sub_child in child.named_children():
+                        sub_child.configure_react(BReLU, replaceAll=self.config.get('replaceAll'))
+
+        elif(activation == 'leaky'):
+            for name,child in model.named_children():
+                if(isinstance(child, nn.Sequential)):
+                    for sub_name, sub_child in child.named_children():
+                        sub_child.configure_react(Leaky_BReLU, replaceAll=self.config.get('replaceAll'))
 
         return model
 
@@ -410,9 +319,11 @@ def train_model():
     wandb.define_metric("val_acc", summary="max")
     wandb.define_metric("Robust_acc", summary="max")
     # name_postfix = "reference" if config['activation'] == 'relu' else "ReAct"
-    name_postfix = config['activation']
-    adver = "-adv" + 'eps:' + str(config['eps']) if config['adv'] else ''
-    name = config["dataset"] + "-" + config["architecture"] + "-" + name_postfix + "-" + config.optimizer + " lr:" + str(round(config.lr, 4)) + adver
+    name_postfix = config['activation'] + '-' + config['optimizer']
+    adver = "-adv" + 'eps:' + str(config.get('eps')) if config.get('adv') else ''
+    rpa = 'All' if config.get('replaceAll') else ''
+    # name = config["dataset"] + "-" + config["architecture"] + "-" + name_postfix + "-" + config.optimizer + " lr:" + str(round(config.lr, 4)) + adver
+    name = config["dataset"] + "-" + config["architecture"] + "-" + name_postfix + adver + rpa
     run.name = name
     wandb_logger = WandbLogger(config=config, save_code=True, log_model="all")
 

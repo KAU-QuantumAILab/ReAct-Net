@@ -64,6 +64,18 @@ class BernoulliSampling(pl.LightningModule):
             return x + output_std.expand_as(x) * epsilon.to(self.device)
 
 
+class Leaky_BReLU(pl.LightningModule):
+    def __init__(self):
+        super(Leaky_BReLU, self).__init__()
+        
+    def forward(self, x):
+        epsilon = torch.distributions.bernoulli.Bernoulli(logits=x).sample()
+        epsilon = torch.where(epsilon==0, 0.1, 1.0)
+        
+        return x * epsilon.to(self.device)
+
+
+
 class BReLU(pl.LightningModule):
     def __init__(self):
         super(BReLU, self).__init__()
