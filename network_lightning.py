@@ -13,7 +13,7 @@ from lightning.pytorch.loggers import WandbLogger, TensorBoardLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
 import torch.optim.lr_scheduler as lr_scheduler
 from torch.optim.lr_scheduler import OneCycleLR
-from models import SamplingLayer, LearnableSamplingLayer
+from models import SamplingLayer
 import wandb
 import os
 import argparse
