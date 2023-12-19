@@ -19,25 +19,14 @@ import os
 import argparse
 import torchattacks
 import numpy as np
+import utils
 
-def torch_seed(random_seed=0):
-
-    torch.manual_seed(random_seed)
-
-    torch.cuda.manual_seed(random_seed)
-    torch.cuda.manual_seed_all(random_seed) # if use multi-GPU
-
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-
-    np.random.seed(random_seed)
-
-torch_seed()
+utils.torch_seed()
 
 parser = argparse.ArgumentParser(description='ReAct Network Training')
 
-parser.add_argument('--model', required=True, help='resnet18 / resnet50 / resnet101 선택 가능')    # 필요한 인수를 추가
-parser.add_argument('--dataset', required=True, help='MNIST / CIFAR10 / ImageNet 선택가능')
+parser.add_argument('--model',  help='resnet18 / resnet50 / resnet101 선택 가능')    # 필요한 인수를 추가
+parser.add_argument('--dataset',help='MNIST / CIFAR10 / ImageNet 선택가능')
 parser.add_argument('--react', action='store_true')
 parser.add_argument('--wandb', action='store_true')
 
@@ -93,13 +82,6 @@ elif(config["dataset"] == 'ImageNet'):
     num_classes = 1000
     input_ch = 3
 
-# %%
-def getDataNormalization(dataset):
-    if(dataset == 'CIFAR10'):
-        return (0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)
-    elif(dataset == 'ImageNet'):
-        return (0.485, 0.456, 0.406), (0.229, 0.224, 0.225)
-
 class ModelWrapper(pl.LightningModule):
     def __init__(self, activation):
         super(ModelWrapper, self).__init__()
@@ -107,7 +89,7 @@ class ModelWrapper(pl.LightningModule):
         if(config["dataset"] == 'MNIST'):
             self.normalization = nn.Identity()
         else:
-            mean, std = getDataNormalization(config["dataset"])
+            mean, std = utils.getDataNormalization(config["dataset"])
             self.normalization = transforms.Normalize(mean, std)
 
     def create_model(self, activation):
@@ -129,18 +111,6 @@ class ModelWrapper(pl.LightningModule):
         return self.cnn(x)
 
 
-def mixup_data(x, y):
-    mixup_alpha = 1.0
-    lam = np.random.beta(mixup_alpha, mixup_alpha)
-    batch_size = x.size()[0]
-    index = torch.randperm(batch_size).cuda()
-    mixed_x = lam * x + (1 - lam) * x[index, :]
-    y_a, y_b = y, y[index]
-    return mixed_x, y_a, y_b, lam
-
-def mixup_criterion(criterion, pred, y_a, y_b, lam):
-    return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
-
 # define the LightningModule
 class LitAutoEncoder(pl.LightningModule):
     def __init__(self, activation):
@@ -148,7 +118,7 @@ class LitAutoEncoder(pl.LightningModule):
         self.save_hyperparameters()
 
         self.encoder = ModelWrapper(activation)
-        print(self.encoder)
+        # print(self.encoder)
 
     def training_step(self, batch, batch_idx):
         # training_step defines the train loop.
@@ -158,15 +128,15 @@ class LitAutoEncoder(pl.LightningModule):
 
         if(config['adv']):
             
-            benign_inputs, benign_targets_a, benign_targets_b, benign_lam = mixup_data(x, y)
+            benign_inputs, benign_targets_a, benign_targets_b, benign_lam = utils.mixup_data(x, y)
             benign_outputs = self.encoder(benign_inputs)
-            loss1 = mixup_criterion(nn.functional.cross_entropy, benign_outputs, benign_targets_a, benign_targets_b, benign_lam)
+            loss1 = utils.mixup_criterion(nn.functional.cross_entropy, benign_outputs, benign_targets_a, benign_targets_b, benign_lam)
 
 
             advExample = self.generateAdv(x, y, args.epsilon)
-            adv_inputs, adv_targets_a, adv_targets_b, adv_lam = mixup_data(advExample, y)
+            adv_inputs, adv_targets_a, adv_targets_b, adv_lam = utils.mixup_data(advExample, y)
             advZ = self.encoder(adv_inputs)
-            loss2 = mixup_criterion(nn.functional.cross_entropy, advZ, adv_targets_a, adv_targets_b, adv_lam)
+            loss2 = utils.mixup_criterion(nn.functional.cross_entropy, advZ, adv_targets_a, adv_targets_b, adv_lam)
 
             self.log("train_loss", (loss1 + loss2) / 2)
 
@@ -300,7 +270,7 @@ elif(config["dataset"]=="ImageNet"):
         transforms.ToTensor(),
     ])
 
-    data_raw = ImageFolder('~/dataset/ImageNet/2012/ILSVRC2012_img_train', transform=transform)
+    data_raw = ImageFolder('/data/ImageNet/2012/ILSVRC2012_img_train', transform=transform)
     trainset, testset = torch.utils.data.random_split(data_raw, [0.9, 0.1])
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'], shuffle=True, num_workers =config['num_workers'])
 
