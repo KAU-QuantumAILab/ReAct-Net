@@ -1,7 +1,9 @@
 
 import torch
+import lightning as L
 import lightning.pytorch as pl
 from torch.autograd import Variable
+from torch import optim, nn, utils, Tensor
 
 class SamplingLayer(pl.LightningModule):
     def __init__(self, hidden_feature=None):
@@ -23,6 +25,3 @@ class SamplingLayer(pl.LightningModule):
             output_std = self.std / torch.sqrt(torch.tensor(x.shape[-1])).detach()
             epsilon = torch.randn_like(x)
             return x + output_std.to(self.device) * epsilon.to(self.device)
-
-        
-        
