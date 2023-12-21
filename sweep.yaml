@@ -1,0 +1,38 @@
+method: bayes
+metric:
+  goal: maximize
+  name: val_acc
+name: MNIST-resnet18
+parameters:
+  activation:
+    value: sampling
+  adv:
+    value: false
+  adv_epsilon:
+    value: 0.03137254901960784
+  architecture:
+    value: resnet18
+  batch_size:
+    values:
+      - 128
+      - 512
+  dataset:
+    value: MNIST
+  epochs:
+    values:
+      - 3
+  lr:
+    distribution: uniform
+    max: 0.1
+    min: 0.0005
+  lr_scheduler:
+    value: false
+  num_workers:
+    values:
+      - 24
+  optimizer:
+    value: Adam
+  replace_all:
+    value: false
+
+program: sweep.py
