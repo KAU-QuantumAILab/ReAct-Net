@@ -3,3 +3,4 @@ __pycache__
 Sampling_Network
 ReAct-Net
 wandb
+lightning_logs
