@@ -24,9 +24,9 @@ def main(config=None, WANDBLOG=None):
         tb_logger = TensorBoardLogger(save_dir="logs/")
 
     lr_monitor = LearningRateMonitor(logging_interval='step')
-    checkpoint_callback = ModelCheckpoint(monitor="val_acc", mode="max")
+    checkpoint_callback = ModelCheckpoint(monitor="val_acc", mode="max", save_weights_only=True)
 
-    trainer = pl.Trainer(max_epochs = config["epochs"],logger= wandb_logger if WANDBLOG else tb_logger, callbacks=[checkpoint_callback,lr_monitor])
+    trainer = pl.Trainer(max_epochs = config["epochs"],logger= wandb_logger if WANDBLOG else tb_logger, callbacks=[lr_monitor])
     dataset = CustomDataModule(config['dataset'], config['batch_size'], config["num_workers"])
     trainer.fit(modified_resnet_encoder, dataset)
     # trainer.test(model=modified_resnet_encoder,dataloaders=testloader)
