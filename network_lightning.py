@@ -22,8 +22,9 @@ def main(config, WANDBLOG):
     else:
         tb_logger = TensorBoardLogger(save_dir="logs/")
 
+    dataset = CustomDataModule(config['dataset'], config['batch_size'], config["num_workers"])
 
-    modified_resnet_encoder = ImageClassifier(config)
+    modified_resnet_encoder = ImageClassifier(config, dataset.num_classes, dataset.input_ch)
 
     # train the model (hint: here are some helpful Trainer arguments for rapid idea iteration)
     # torch.set_float32_matmul_precision('medium')
@@ -32,7 +33,6 @@ def main(config, WANDBLOG):
     checkpoint_callback = ModelCheckpoint(monitor="val_acc", mode="max")
 
     trainer = pl.Trainer(max_epochs = config["epochs"],logger= wandb_logger if WANDBLOG else tb_logger, callbacks=[checkpoint_callback,lr_monitor])
-    dataset = CustomDataModule(config['dataset'], config['batch_size'], config["num_workers"])
     trainer.fit(modified_resnet_encoder, dataset)
     # trainer.test(model=modified_resnet_encoder,dataloaders=testloader)
 

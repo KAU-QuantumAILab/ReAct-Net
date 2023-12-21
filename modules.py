@@ -81,14 +81,13 @@ class CustomDataModule(L.LightningDataModule):
 
 
 class ImageClassifier(pl.LightningModule):
-    def __init__(self, config):
+    def __init__(self, config, num_classes, input_ch):
         super().__init__()
         # self.save_hyperparameters()
         self.config = config
-        self.num_classes = 1000 if config["dataset"] == 'ImageNet' else 10
-        input_ch = 1 if config["dataset"]=='MNIST' else 3
-        self.encoder = ModelWrapper(config, self.num_classes,input_ch)
-        # print(self.encoder)
+        self.num_classes = num_classes
+        self.encoder = ModelWrapper(config, num_classes,input_ch)
+        print(self.encoder)
 
     def training_step(self, batch, batch_idx):
         # training_step defines the train loop.
