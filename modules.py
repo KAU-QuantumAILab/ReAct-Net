@@ -24,6 +24,14 @@ class CustomDataModule(L.LightningDataModule):
         self.num_classes = 1000 if dataset == 'ImageNet' else 10
         self.input_ch = 1 if dataset=='MNIST' else 3
 
+    def prepare_data(self):
+        if(self.dataset=="CIFAR10"):
+            CIFAR10(root='~/data', train=True,download=True)
+            CIFAR10(root='~/data', train=False,download=True)
+        elif(self.dataset=="MNIST"):
+            MNIST(root='~/data', train=True, download=True)
+            MNIST(root='~/data', train=False, download=True)
+
     def setup(self, stage: str):
         if(self.dataset=="CIFAR10"):
             train_transform = transforms.Compose(
@@ -32,26 +40,27 @@ class CustomDataModule(L.LightningDataModule):
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
                 ])
-
             test_transform = transforms.Compose(
                 [
                 transforms.ToTensor(),
                 ])
 
-            self.trainset = CIFAR10(root='~/data', train=True,
-                                                    download=True, transform=train_transform)
-            self.testset = CIFAR10(root='~/data', train=False,
-                                                download=True, transform=test_transform)
+            if(stage == "fit"):
+                self.trainset = CIFAR10(root='~/data', train=True,
+                                                        download=True, transform=train_transform)
+                self.testset = CIFAR10(root='~/data', train=False,
+                                                    download=True, transform=test_transform)
 
         elif(self.dataset=="MNIST"):
             train_transform = transforms.Compose(
                 [transforms.ToTensor(),
             ])
 
-            self.trainset = MNIST(root='~/data', train=True,
+            if(stage == "fit"):
+                self.trainset = MNIST(root='~/data', train=True,
+                                                        download=True, transform=train_transform)
+                self.testset = MNIST(root='~/data', train=False,
                                                     download=True, transform=train_transform)
-            self.testset = MNIST(root='~/data', train=False,
-                                                download=True, transform=train_transform)
                                                     
         elif(self.dataset=="ImageNet"):
             train_transform = transforms.Compose([
@@ -60,8 +69,9 @@ class CustomDataModule(L.LightningDataModule):
                 transforms.ToTensor(),
             ])
 
-            data_raw = ImageFolder('/data/ImageNet/2012/ILSVRC2012_img_train', transform=train_transform)
-            self.trainset, self.testset = random_split(data_raw, [0.9, 0.1])
+            if(stage == "fit"):
+                data_raw = ImageFolder('/data/ImageNet/2012/ILSVRC2012_img_train', transform=train_transform)
+                self.trainset, self.testset = random_split(data_raw, [0.9, 0.1])
 
     def train_dataloader(self):
         return DataLoader(self.trainset, batch_size=self.batchsize, shuffle=True, num_workers =self.num_workers)
@@ -73,7 +83,7 @@ class CustomDataModule(L.LightningDataModule):
 class ImageClassifier(pl.LightningModule):
     def __init__(self, config):
         super().__init__()
-        self.save_hyperparameters()
+        # self.save_hyperparameters()
         self.config = config
         self.num_classes = 1000 if config["dataset"] == 'ImageNet' else 10
         input_ch = 1 if config["dataset"]=='MNIST' else 3
