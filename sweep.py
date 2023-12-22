@@ -15,7 +15,8 @@ import utils
 
 def main(config=None, WANDBLOG=None):
     
-    modified_resnet_encoder = ImageClassifier(config)
+    dataset = CustomDataModule(config['dataset'], config['batch_size'], config["num_workers"])
+    modified_resnet_encoder = ImageClassifier(config, dataset.num_classes, dataset.input_ch)
     if(WANDBLOG):
         wandb_logger = WandbLogger()
         wandb_logger.watch(modified_resnet_encoder.encoder.cnn, log="all")
@@ -27,7 +28,6 @@ def main(config=None, WANDBLOG=None):
     checkpoint_callback = ModelCheckpoint(monitor="val_acc", mode="max", save_weights_only=True)
 
     trainer = pl.Trainer(max_epochs = config["epochs"],logger= wandb_logger if WANDBLOG else tb_logger, callbacks=[lr_monitor])
-    dataset = CustomDataModule(config['dataset'], config['batch_size'], config["num_workers"])
     trainer.fit(modified_resnet_encoder, dataset)
     # trainer.test(model=modified_resnet_encoder,dataloaders=testloader)
 
