@@ -173,6 +173,12 @@ class ModelWrapper(pl.LightningModule):
                 if(isinstance(child, nn.Sequential)):
                     for sub_name, sub_child in child.named_children():
                         sub_child.configure_react(BatchWiseSARBSC, replaceAll=self.config.get('replaceAll'))
+                        
+        elif(activation == 'ImproveBatchWiseSARBSC'):
+            for name,child in model.named_children():
+                if(isinstance(child, nn.Sequential)):
+                    for sub_name, sub_child in child.named_children():
+                        sub_child.configure_react(ImproveBatchWiseSARBSC, replaceAll=self.config.get('replaceAll'))
         
         
         return model

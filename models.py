@@ -285,7 +285,7 @@ class BatchWiseSARBSC(pl.LightningModule):
         p = -torch.sin(mu) * torch.cos(mu + (torch.pi/2))
         p = torch.where(p < 0, 0, p)
         p = torch.where(p > 1, 1, p)
-        switch = torch.distributions.bernoulli.Bernoulli(logits=mu).sample()
+        switch = torch.distributions.bernoulli.Bernoulli(probs=p).sample()
         # print('mu=%d'%mu)
         # print('b=%d'%b)
         
@@ -298,6 +298,24 @@ class BatchWiseSARBSC(pl.LightningModule):
                 # tmp.append(self.one(batch.clone()))
                 tmp.append(self.one(batch))
         return torch.stack(tmp)
+    
+    
+class ImproveBatchWiseSARBSC(pl.LightningModule):
+    def __init__(self, zero=BReLU(), one=torch.nn.ReLU(inplace=False)):
+        super(ImproveBatchWiseSARBSC, self).__init__() #Stochastic Activation Relu or Brelu
+        self.zero=zero
+        self.one=one
+        
+    def forward(self, x):
+        mu = x.to(torch.float32).mean(dim=(1,2,3), keepdim=True)
+        p = -torch.sin(mu) * torch.cos(mu + (torch.pi/2))
+        p = torch.where(p < 0, 0, p)
+        p = torch.where(p > 1, 1, p)
+        b = torch.distributions.bernoulli.Bernoulli(probs=p).sample()
+        # print('mu=%d'%mu)
+        # print('b=%d'%b)
+        
+        return self.zero((1-b) * x) + self.one(b * x)
         
 
 class MLPMnist(pl.LightningModule):
