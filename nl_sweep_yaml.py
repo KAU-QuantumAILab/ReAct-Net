@@ -12,7 +12,7 @@ from lightning.pytorch.loggers import WandbLogger, TensorBoardLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
 import torch.optim.lr_scheduler as lr_scheduler
 from torch.optim.lr_scheduler import OneCycleLR
-from models import SamplingLayer, MLPMnist, Layer4Conv, Net, Layer3Conv, BReLU, Leaky_BReLU
+from models import *
 import wandb
 import os
 import argparse
@@ -113,7 +113,68 @@ class ModelWrapper(pl.LightningModule):
                 if(isinstance(child, nn.Sequential)):
                     for sub_name, sub_child in child.named_children():
                         sub_child.configure_react(Leaky_BReLU, replaceAll=self.config.get('replaceAll'))
+                        
+        elif(activation == 'Vbrelu'):
+            for name,child in model.named_children():
+                if(isinstance(child, nn.Sequential)):
+                    for sub_name, sub_child in child.named_children():
+                        sub_child.configure_react(VariableBReLU, replaceAll=self.config.get('replaceAll'), alpha=self.config.get('alpha'))
 
+        elif(activation == 'MAct'):
+            for name,child in model.named_children():
+                if(isinstance(child, nn.Sequential)):
+                    for sub_name, sub_child in child.named_children():
+                        sub_child.configure_react(MeasureAct, replaceAll=self.config.get('replaceAll'))
+                        
+        elif(activation == 'SMAct'):
+            for name,child in model.named_children():
+                if(isinstance(child, nn.Sequential)):
+                    for sub_name, sub_child in child.named_children():
+                        sub_child.configure_react(SomeMeasureAct, replaceAll=self.config.get('replaceAll'))
+            
+        elif(activation == 'SARB'):
+            for name,child in model.named_children():
+                if(isinstance(child, nn.Sequential)):
+                    for sub_name, sub_child in child.named_children():
+                        sub_child.configure_react(SARB, replaceAll=self.config.get('replaceAll'))
+        
+        elif(activation == 'SSCA'):
+            for name,child in model.named_children():
+                if(isinstance(child, nn.Sequential)):
+                    for sub_name, sub_child in child.named_children():
+                        sub_child.configure_react(SSCA, replaceAll=self.config.get('replaceAll'))
+                        
+        elif(activation == 'MActSC'):
+            for name,child in model.named_children():
+                if(isinstance(child, nn.Sequential)):
+                    for sub_name, sub_child in child.named_children():
+                        sub_child.configure_react(MeasureActSC, replaceAll=self.config.get('replaceAll'))
+                        
+        elif(activation == 'SMActSC'):
+            for name,child in model.named_children():
+                if(isinstance(child, nn.Sequential)):
+                    for sub_name, sub_child in child.named_children():
+                        sub_child.configure_react(SomeMeasureActSC, replaceAll=self.config.get('replaceAll'))
+                        
+        elif(activation == 'SARBSC'):
+            for name,child in model.named_children():
+                if(isinstance(child, nn.Sequential)):
+                    for sub_name, sub_child in child.named_children():
+                        sub_child.configure_react(SARBSC, replaceAll=self.config.get('replaceAll'))
+                        
+        elif(activation == 'BatchWiseSARB'):
+            for name,child in model.named_children():
+                if(isinstance(child, nn.Sequential)):
+                    for sub_name, sub_child in child.named_children():
+                        sub_child.configure_react(BatchWiseSARB, replaceAll=self.config.get('replaceAll'))
+                        
+        elif(activation == 'BatchWiseSARBSC'):
+            for name,child in model.named_children():
+                if(isinstance(child, nn.Sequential)):
+                    for sub_name, sub_child in child.named_children():
+                        sub_child.configure_react(BatchWiseSARBSC, replaceAll=self.config.get('replaceAll'))
+        
+        
         return model
 
     def forward(self, x):
@@ -319,13 +380,15 @@ def train_model():
     wandb.define_metric("val_acc", summary="max")
     wandb.define_metric("Robust_acc", summary="max")
     # name_postfix = "reference" if config['activation'] == 'relu' else "ReAct"
-    name_postfix = config['activation'] + '-' + config['optimizer']
+    rpa = ' All' if config.get('replaceAll') else ''
+    name_postfix = config['activation'] + rpa + '-' + config['optimizer']
     adver = "-adv" + 'eps:' + str(config.get('eps')) if config.get('adv') else ''
-    rpa = 'All' if config.get('replaceAll') else ''
+    
     # name = config["dataset"] + "-" + config["architecture"] + "-" + name_postfix + "-" + config.optimizer + " lr:" + str(round(config.lr, 4)) + adver
-    name = config["dataset"] + "-" + config["architecture"] + "-" + name_postfix + adver + rpa
+    name = config["dataset"] + "-" + config["architecture"] + "-" + name_postfix + adver
     run.name = name
-    wandb_logger = WandbLogger(config=config, save_code=True, log_model="all")
+    # wandb_logger = WandbLogger(config=config, save_code=False, log_model="all")
+    wandb_logger = WandbLogger(config=config, save_code=False)    # no checkpoint save
 
     data = choose_dataset(config=config)
 
@@ -336,18 +399,30 @@ def train_model():
 
     wandb_logger.watch(modified_resnet_encoder, log="all")
 
+    # file_name = config['activation'] + str(round(config.get('alpha'), 3))
+    file_name = config['activation']
     lr_monitor = LearningRateMonitor(logging_interval='step')
-    checkpoint_callback = ModelCheckpoint(monitor="val_acc", mode="max")
+    
+    checkpoint_callback = ModelCheckpoint(monitor="val_acc", mode="max",
+                                          dirpath='./plan',
+                                          filename=file_name + '-val_acc-{val_acc:.4f}')
+    
+    # checkpoint_callback = ModelCheckpoint(monitor="Robust_acc", mode="max",
+    #                                       dirpath='./plan',
+    #                                       filename=file_name + '-Robust_acc-{val_acc:.4f}')
+    
     # trainer = pl.Trainer(max_epochs = config["epochs"],logger= wandb_logger, callbacks=[checkpoint_callback,lr_monitor], devices = find_usable_cuda_devices(1))
-    trainer = pl.Trainer(max_epochs = config["epochs"],logger= wandb_logger, callbacks=[checkpoint_callback,lr_monitor], devices = device_num)
+    trainer = pl.Trainer(accelerator = 'gpu', max_epochs = config["epochs"],logger= wandb_logger, callbacks=[checkpoint_callback,lr_monitor], devices = device_num)
+    # trainer = pl.Trainer(max_epochs = config["epochs"],logger= wandb_logger, callbacks=[lr_monitor], devices = device_num)
     trainer.fit(model=modified_resnet_encoder, train_dataloaders=data[0], val_dataloaders=data[1])
-
-    wandb.finish()
+    torch.cuda.empty_cache()
+    # wandb.finish()
 
 
 
 def main():
-    sweep_id = wandb.sweep(sweep_config, project=project_name)
+    resume = sweep_config.get('sweep_id')
+    sweep_id = resume if resume else wandb.sweep(sweep_config, project=project_name)
     # sweep_id = "gt3qp3cj"
     wandb.agent(sweep_id=sweep_id, function=train_model, project=project_name, entity=entity)
 

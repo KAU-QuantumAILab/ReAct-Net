@@ -74,7 +74,19 @@ class Leaky_BReLU(pl.LightningModule):
         
         return x * epsilon.to(self.device)
 
-
+class VariableBReLU(pl.LightningModule):
+    def __init__(self, alpha=1):
+        super(VariableBReLU, self).__init__()
+        self.alpha = alpha
+        
+    def forward(self, x):
+        epsilon = torch.distributions.bernoulli.Bernoulli(logits=self.alpha * x).sample()
+        
+        return x * epsilon.to(self.device)
+    
+    def extra_repr(self) -> str:
+        return 'alpha={}'.format(self.alpha)
+    
 
 class BReLU(pl.LightningModule):
     def __init__(self):
@@ -115,6 +127,178 @@ class BReLU(pl.LightningModule):
             return x * epsilon.to(self.device)
 
 
+class MeasureAct(pl.LightningModule):                   # 확률적으로 모든 값을 0 또는 1로 변환
+    def __init__(self):
+        super(MeasureAct, self).__init__()
+        
+    def forward(self, x):
+        epsilon = torch.distributions.bernoulli.Bernoulli(logits=x).sample()
+        epsilon = epsilon * (1/(x + 1e-16))
+        
+        return x * epsilon.to(self.device)
+
+
+class SomeMeasureAct(pl.LightningModule):               # 확률적으로 일부 값들을 0 또는 1로 변환
+    def __init__(self):
+        super(SomeMeasureAct, self).__init__()
+        
+    def forward(self, x):
+        b = torch.distributions.bernoulli.Bernoulli(logits=x)
+        b1 = b.sample()
+        b2 = b.sample()
+
+        epsilon = b1*b2*(1/(x+1e-16)) + torch.logical_xor(b1, b2)
+        
+        return x * epsilon
+
+
+class SARB(pl.LightningModule):                         #Stochastic Activation Relu or Brelu(확률적으로 Relu나 BRelu를 적용)
+    def __init__(self, zero=BReLU(), one=torch.nn.ReLU(inplace=True)):
+        super(SARB, self).__init__() 
+        self.zero=zero
+        self.one=one
+        
+    def forward(self, x):
+        mu = x.to(torch.float32).mean()
+        b = torch.distributions.bernoulli.Bernoulli(logits=mu).sample()
+        # print('mu=%d'%mu)
+        # print('b=%d'%b)
+        
+        if b == 0:
+            return self.zero(x)
+        
+        else:
+            return self.one(x)
+        
+    
+    
+class SSCA(pl.LightningModule):          # Stochastic Sin Cos Activation (확률 함수를 Sin, Cos을 활용)
+    def __init__(self):
+        super(SSCA, self).__init__()
+        
+    def forward(self, x):
+        p = -torch.sin(x) * torch.cos(x + (torch.pi/2))
+        p = torch.where(p < 0, 0, p)
+        p = torch.where(p > 1, 1, p)
+        # print(p)
+        # print('out of 1')
+        # print((p > 1).nonzero(as_tuple=True))
+        # print(p[(p > 1).nonzero(as_tuple=True)])
+        # print('out of 0')
+        # print((p < 0 ).nonzero(as_tuple=True))
+        # print(p[(p < 0 ).nonzero(as_tuple=True)])
+        # print()
+        
+        epsilon = torch.distributions.bernoulli.Bernoulli(probs=p).sample()
+        return x * epsilon.to(self.device)
+
+
+class MeasureActSC(pl.LightningModule):                   # 확률적으로 모든 값을 0 또는 1로 변환
+    def __init__(self):
+        super(MeasureActSC, self).__init__()
+        
+    def forward(self, x):
+        p = -torch.sin(x) * torch.cos(x + (torch.pi/2))
+        p = torch.where(p < 0, 0, p)
+        p = torch.where(p > 1, 1, p)
+        # epsilon = torch.distributions.bernoulli.Bernoulli(logits=x).sample()
+        epsilon = torch.distributions.bernoulli.Bernoulli(probs=p).sample()
+        epsilon = epsilon * (1/(x + 1e-16))
+        
+        return x * epsilon.to(self.device)
+
+
+class SomeMeasureActSC(pl.LightningModule):               # 확률적으로 일부 값들을 0 또는 1로 변환
+    def __init__(self):
+        super(SomeMeasureActSC, self).__init__()
+        
+    def forward(self, x):
+        p = -torch.sin(x) * torch.cos(x + (torch.pi/2))
+        p = torch.where(p < 0, 0, p)
+        p = torch.where(p > 1, 1, p)
+        # b = torch.distributions.bernoulli.Bernoulli(logits=x)
+        b = torch.distributions.bernoulli.Bernoulli(probs=p)
+        b1 = b.sample()
+        b2 = b.sample()
+
+        epsilon = b1*b2*(1/(x+1e-16)) + torch.logical_xor(b1, b2)
+        
+        return x * epsilon
+
+
+class SARBSC(pl.LightningModule):                         #Stochastic Activation Relu or Brelu(확률적으로 Relu나 BRelu를 적용)
+    def __init__(self, zero=BReLU(), one=torch.nn.ReLU(inplace=True)):
+        super(SARBSC, self).__init__() 
+        self.zero=zero
+        self.one=one
+        
+    def forward(self, x):
+        mu = x.to(torch.float32).mean()
+        p = -torch.sin(mu) * torch.cos(mu + (torch.pi/2))
+        p = torch.where(p < 0, 0, p)
+        p = torch.where(p > 1, 1, p)
+        # b = torch.distributions.bernoulli.Bernoulli(logits=mu).sample()
+        b = torch.distributions.bernoulli.Bernoulli(probs=p).sample()
+        # print('mu=%d'%mu)
+        # print('b=%d'%b)
+        
+        if b == 0:
+            return self.zero(x)
+        
+        else:
+            return self.one(x)
+        
+        
+class BatchWiseSARB(pl.LightningModule):
+    def __init__(self, zero=BReLU(), one=torch.nn.ReLU(inplace=False)):
+        super(BatchWiseSARB, self).__init__() #Stochastic Activation Relu or Brelu
+        self.zero=zero
+        self.one=one
+        
+    def forward(self, x):
+        tmp = []
+        mu = x.to(torch.float32).mean(dim=(1,2,3), keepdim=False)
+        switch = torch.distributions.bernoulli.Bernoulli(logits=mu).sample()
+        # print('mu=%d'%mu)
+        # print('b=%d'%b)
+        
+        for b, batch in zip(switch, [x[j] for j in range(x.size(0))]):
+            if b == 0:
+                # tmp.append(self.zero(batch.clone()))
+                tmp.append(self.zero(batch))
+            
+            else:
+                # tmp.append(self.one(batch.clone()))
+                tmp.append(self.one(batch))
+        return torch.stack(tmp)
+        
+        
+class BatchWiseSARBSC(pl.LightningModule):
+    def __init__(self, zero=BReLU(), one=torch.nn.ReLU(inplace=False)):
+        super(BatchWiseSARBSC, self).__init__() #Stochastic Activation Relu or Brelu
+        self.zero=zero
+        self.one=one
+        
+    def forward(self, x):
+        tmp = []
+        mu = x.to(torch.float32).mean(dim=(1,2,3), keepdim=False)
+        p = -torch.sin(mu) * torch.cos(mu + (torch.pi/2))
+        p = torch.where(p < 0, 0, p)
+        p = torch.where(p > 1, 1, p)
+        switch = torch.distributions.bernoulli.Bernoulli(logits=mu).sample()
+        # print('mu=%d'%mu)
+        # print('b=%d'%b)
+        
+        for b, batch in zip(switch, [x[j] for j in range(x.size(0))]):
+            if b == 0:
+                # tmp.append(self.zero(batch.clone()))
+                tmp.append(self.zero(batch))
+            
+            else:
+                # tmp.append(self.one(batch.clone()))
+                tmp.append(self.one(batch))
+        return torch.stack(tmp)
+        
 
 class MLPMnist(pl.LightningModule):
     def __init__(self, config):
