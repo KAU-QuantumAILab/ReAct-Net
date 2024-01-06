@@ -298,16 +298,66 @@ class BatchWiseSARBSC(pl.LightningModule):
                 # tmp.append(self.one(batch.clone()))
                 tmp.append(self.one(batch))
         return torch.stack(tmp)
-    
+
+
+class ImproveBatchWiseSARB(pl.LightningModule):
+    def __init__(self, zero=BReLU(), one=torch.nn.ReLU(inplace=True)):
+        super(ImproveBatchWiseSARB, self).__init__() #Stochastic Activation Relu or Brelu
+        self.zero=zero
+        self.one=one
+        
+    def forward(self, x):
+        mu = x.to(torch.float32).mean(dim=(1,2,3), keepdim=True)
+
+        b = torch.distributions.bernoulli.Bernoulli(logits=mu).sample()
+        # print('mu=%d'%mu)
+        # print('b=%d'%b)
+        
+        return self.zero((1-b) * x) + self.one(b * x)
+
     
 class ImproveBatchWiseSARBSC(pl.LightningModule):
-    def __init__(self, zero=BReLU(), one=torch.nn.ReLU(inplace=False)):
+    def __init__(self, zero=BReLU(), one=torch.nn.ReLU(inplace=True)):
         super(ImproveBatchWiseSARBSC, self).__init__() #Stochastic Activation Relu or Brelu
         self.zero=zero
         self.one=one
         
     def forward(self, x):
         mu = x.to(torch.float32).mean(dim=(1,2,3), keepdim=True)
+        p = -torch.sin(mu) * torch.cos(mu + (torch.pi/2))
+        p = torch.where(p < 0, 0, p)
+        p = torch.where(p > 1, 1, p)
+        b = torch.distributions.bernoulli.Bernoulli(probs=p).sample()
+        # print('mu=%d'%mu)
+        # print('b=%d'%b)
+        
+        return self.zero((1-b) * x) + self.one(b * x)
+    
+    
+class ChannelWiseSARB(pl.LightningModule):
+    def __init__(self, zero=BReLU(), one=torch.nn.ReLU(inplace=True)):
+        super(ChannelWiseSARB, self).__init__() #Stochastic Activation Relu or Brelu
+        self.zero=zero
+        self.one=one
+        
+    def forward(self, x):
+        mu = x.to(torch.float32).mean(dim=(2,3), keepdim=True)
+
+        b = torch.distributions.bernoulli.Bernoulli(logits=mu).sample()
+        # print('mu=%d'%mu)
+        # print('b=%d'%b)
+        
+        return self.zero((1-b) * x) + self.one(b * x)
+
+    
+class ChannelWiseSARBSC(pl.LightningModule):
+    def __init__(self, zero=BReLU(), one=torch.nn.ReLU(inplace=True)):
+        super(ChannelWiseSARBSC, self).__init__() #Stochastic Activation Relu or Brelu
+        self.zero=zero
+        self.one=one
+        
+    def forward(self, x):
+        mu = x.to(torch.float32).mean(dim=(2,3), keepdim=True)
         p = -torch.sin(mu) * torch.cos(mu + (torch.pi/2))
         p = torch.where(p < 0, 0, p)
         p = torch.where(p > 1, 1, p)
