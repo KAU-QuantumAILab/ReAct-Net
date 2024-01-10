@@ -29,7 +29,7 @@ parser = argparse.ArgumentParser(
     description='reAct sweep with yaml \n usage: nl_sweep_yaml.py --yaml [yaml_path] --devices 0 --project_name [pname] -- entity [ename]\n')
 
 parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
-parser.add_argument('--project_name', default="Brelu", help='wandb project name')
+parser.add_argument('--project_name', default="Brelu_ImageNet100", help='wandb project name')
 parser.add_argument('--entity', default='kau-quantum', help='wandb entity name')
 parser.add_argument('--devices', default=0, type=int, help='choose the CUDA(ex: 0, 1, 2, -1)')
 
@@ -70,6 +70,8 @@ def getDataNormalization(dataset):
         return (0.1307, ), (0.3081, )
     elif(dataset == 'TinyImagenet'):
         return (0.4802, 0.4481, 0.3975), (0.2302, 0.2265, 0.2262)
+    elif(dataset == 'ImageNet100'):
+        return (0.485, 0.456, 0.406), (0.229, 0.224, 0.225)
 
 
 class ModelWrapper(pl.LightningModule):
@@ -87,6 +89,8 @@ class ModelWrapper(pl.LightningModule):
             self.config['num_classes'] = 1000
         elif(self.config["dataset"] == 'TinyImagenet'):
             self.config['num_classes'] = 200
+        elif(self.config["dataset"] == 'ImageNet100'):
+            self.config['num_classes'] = 100
 
         model = resnet_models[self.config['architecture']](weights=False, num_classes=self.config['num_classes'])
         if(self.config['dataset'] == 'CIFAR10' or self.config['dataset'] == 'TinyImagenet'):
@@ -354,6 +358,22 @@ def choose_dataset(config):
                                                 shuffle=False, num_workers = config['num_workers'])
         
         data = (trainloader, testloader)
+        
+    
+    elif config["dataset"] == "ImageNet100":
+        transform = transforms.Compose([
+            transforms.Resize((256, 256)),
+            transforms.CenterCrop((224,224)),
+            transforms.ToTensor(),
+        ])
+        
+        trainset = ImageFolder('~/data/ImageNet100/train', transform=transform)
+        testset = ImageFolder('~/data/ImageNet100/val', transform=transform)
+        
+        trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'], shuffle=True, num_workers =config['num_workers'])
+        testloader = torch.utils.data.DataLoader(testset, batch_size=config['batch_size'], shuffle=False, num_workers =config['num_workers'])
+        
+        data = (trainloader, testloader)
 
 
     elif config["dataset"] == "ImageNet":
@@ -433,13 +453,13 @@ def train_model():
     file_name = config['activation']
     lr_monitor = LearningRateMonitor(logging_interval='step')
     
-    # checkpoint_callback = ModelCheckpoint(monitor="val_acc", mode="max",
-    #                                       dirpath='./plan',
-    #                                       filename=file_name + '-val_acc-{val_acc:.4f}')
-    
-    checkpoint_callback = ModelCheckpoint(monitor="Robust_acc", mode="max",
+    checkpoint_callback = ModelCheckpoint(monitor="val_acc", mode="max",
                                           dirpath='./plan',
-                                          filename=file_name + '-Robust_acc-{val_acc:.4f}')
+                                          filename=file_name + '-val_acc-{val_acc:.4f}')
+    
+    # checkpoint_callback = ModelCheckpoint(monitor="Robust_acc", mode="max",
+    #                                       dirpath='./plan',
+    #                                       filename=file_name + '-Robust_acc-{val_acc:.4f}')
     
     # trainer = pl.Trainer(max_epochs = config["epochs"],logger= wandb_logger, callbacks=[checkpoint_callback,lr_monitor], devices = find_usable_cuda_devices(1))
     trainer = pl.Trainer(accelerator = 'gpu', max_epochs = config["epochs"],logger= wandb_logger, callbacks=[checkpoint_callback,lr_monitor], devices = device_num)
