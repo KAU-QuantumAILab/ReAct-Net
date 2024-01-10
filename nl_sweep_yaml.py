@@ -174,11 +174,35 @@ class ModelWrapper(pl.LightningModule):
                     for sub_name, sub_child in child.named_children():
                         sub_child.configure_react(BatchWiseSARBSC, replaceAll=self.config.get('replaceAll'))
                         
+        elif(activation == 'ImproveBatchWiseSARB'):
+            for name,child in model.named_children():
+                if(isinstance(child, nn.Sequential)):
+                    for sub_name, sub_child in child.named_children():
+                        sub_child.configure_react(ImproveBatchWiseSARB, replaceAll=self.config.get('replaceAll'))
+                        
         elif(activation == 'ImproveBatchWiseSARBSC'):
             for name,child in model.named_children():
                 if(isinstance(child, nn.Sequential)):
                     for sub_name, sub_child in child.named_children():
                         sub_child.configure_react(ImproveBatchWiseSARBSC, replaceAll=self.config.get('replaceAll'))
+                        
+        elif(activation == 'ChannelWiseSARB'):
+            for name,child in model.named_children():
+                if(isinstance(child, nn.Sequential)):
+                    for sub_name, sub_child in child.named_children():
+                        sub_child.configure_react(ChannelWiseSARB, replaceAll=self.config.get('replaceAll'))
+                        
+        elif(activation == 'ChannelWiseSARBSC'):
+            for name,child in model.named_children():
+                if(isinstance(child, nn.Sequential)):
+                    for sub_name, sub_child in child.named_children():
+                        sub_child.configure_react(ChannelWiseSARBSC, replaceAll=self.config.get('replaceAll'))
+                        
+        elif(activation == 'ReLUPlusBRelu'):
+            for name,child in model.named_children():
+                if(isinstance(child, nn.Sequential)):
+                    for sub_name, sub_child in child.named_children():
+                        sub_child.configure_react(ReLUPlusBRelu, replaceAll=self.config.get('replaceAll'))
         
         
         return model
@@ -409,13 +433,13 @@ def train_model():
     file_name = config['activation']
     lr_monitor = LearningRateMonitor(logging_interval='step')
     
-    checkpoint_callback = ModelCheckpoint(monitor="val_acc", mode="max",
-                                          dirpath='./plan',
-                                          filename=file_name + '-val_acc-{val_acc:.4f}')
-    
-    # checkpoint_callback = ModelCheckpoint(monitor="Robust_acc", mode="max",
+    # checkpoint_callback = ModelCheckpoint(monitor="val_acc", mode="max",
     #                                       dirpath='./plan',
-    #                                       filename=file_name + '-Robust_acc-{val_acc:.4f}')
+    #                                       filename=file_name + '-val_acc-{val_acc:.4f}')
+    
+    checkpoint_callback = ModelCheckpoint(monitor="Robust_acc", mode="max",
+                                          dirpath='./plan',
+                                          filename=file_name + '-Robust_acc-{val_acc:.4f}')
     
     # trainer = pl.Trainer(max_epochs = config["epochs"],logger= wandb_logger, callbacks=[checkpoint_callback,lr_monitor], devices = find_usable_cuda_devices(1))
     trainer = pl.Trainer(accelerator = 'gpu', max_epochs = config["epochs"],logger= wandb_logger, callbacks=[checkpoint_callback,lr_monitor], devices = device_num)

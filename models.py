@@ -366,6 +366,15 @@ class ChannelWiseSARBSC(pl.LightningModule):
         # print('b=%d'%b)
         
         return self.zero((1-b) * x) + self.one(b * x)
+    
+class ReLUPlusBRelu(pl.LightningModule):
+    def __init__(self):
+        super(ReLUPlusBRelu, self).__init__() #Relu + brelu
+        self.relu = nn.ReLU(inplace=True)
+        self.brelu = BReLU()
+        
+    def forward(self, x):
+        return self.relu(x) + self.brelu(x)
         
 
 class MLPMnist(pl.LightningModule):
