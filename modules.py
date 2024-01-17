@@ -16,12 +16,12 @@ import torchattacks
 import utils
 
 class CustomDataModule(L.LightningDataModule):
-    def __init__(self, dataset, batchsize, num_workers):
+    def __init__(self, dataset, classes=1000, batchsize=128, num_workers=20):
         super().__init__()
         self.dataset = dataset
         self.batchsize = batchsize
         self.num_workers = num_workers
-        self.num_classes = 1000 if dataset == 'ImageNet' else 10
+        self.num_classes = classes if dataset == 'ImageNet' else 10
         self.input_ch = 1 if dataset=='MNIST' else 3
 
     def prepare_data(self):
@@ -71,6 +71,11 @@ class CustomDataModule(L.LightningDataModule):
 
             if(stage == "fit"):
                 data_raw = ImageFolder('/data/ImageNet/2012/ILSVRC2012_img_train', transform=train_transform)
+                labels = list(range(self.num_classes))
+                indices = [idx for idx, target in enumerate(data_raw.targets) if target in labels]
+                data_raw = torch.utils.data.Subset(data_raw, indices)
+
+                # assert False
                 self.trainset, self.testset = random_split(data_raw, [0.9, 0.1])
 
     def train_dataloader(self):

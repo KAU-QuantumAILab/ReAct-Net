@@ -15,7 +15,7 @@ import utils
 
 def main(config=None, WANDBLOG=None):
     
-    dataset = CustomDataModule(config['dataset'], config['batch_size'], config["num_workers"])
+    dataset = CustomDataModule(config['dataset'], 1000, config['batch_size'], config["num_workers"])
     modified_resnet_encoder = ImageClassifier(config, dataset.num_classes, dataset.input_ch)
     if(WANDBLOG):
         wandb_logger = WandbLogger()
