@@ -87,7 +87,7 @@ class BasicBlock(nn.Module):
         self.bn2 = norm_layer(planes)
         self.downsample = downsample
         self.stride = stride
-        self.bottleneckLayer = nn.LeakyReLU(inplace=True)
+        self.bottleneckLayer = nn.ReLU(inplace=True)
 
     def configure_RaCUN(self, RaCUN, replaceAll=False):
         self.bottleneckLayer = RaCUN()
