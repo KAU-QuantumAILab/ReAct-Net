@@ -2,12 +2,12 @@ method: bayes
 metric:
   goal: maximize
   name: val_acc
-name: MNIST-resnet18
+name: ImageNet100-resnet18-adv
 parameters:
   activation:
-    value: sampling
+    value: relu
   adv:
-    value: false
+    value: true
   adv_epsilon:
     value: 0.03137254901960784
   architecture:
@@ -15,23 +15,25 @@ parameters:
   batch_size:
     values:
       - 128
-      - 512
+      - 256
   dataset:
-    value: MNIST
+    value: ImageNet
   epochs:
     values:
-      - 3
+      - 100
   lr:
     distribution: uniform
     max: 0.1
-    min: 0.0005
+    min: 0.0001
   lr_scheduler:
     value: false
   num_workers:
     values:
       - 24
   optimizer:
-    value: Adam
+    values: 
+      - SGD
+      - Adam
   replace_all:
     value: false
 

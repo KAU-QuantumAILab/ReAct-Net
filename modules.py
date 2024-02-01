@@ -217,7 +217,7 @@ class ModelWrapper(pl.LightningModule):
             for name,child in model.named_children():
                 if(isinstance(child, nn.Sequential)):
                     for sub_name, sub_child in child.named_children():
-                        sub_child.configure_react(SamplingLayer, self.config["replace_all"])
+                        sub_child.configure_RaCUN(SamplingLayer, self.config["replace_all"])
         
         return model
 

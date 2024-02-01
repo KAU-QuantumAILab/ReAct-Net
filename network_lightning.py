@@ -13,12 +13,12 @@ import utils
 
 
 def main(config, WANDBLOG):
-    name_postfix = "reference" if config['activation'] == 'relu' else "ReAct"
+    name_postfix = "reference" if config['activation'] == 'relu' else "RaCUN"
     dataset = CustomDataModule(config['dataset'], 1000, config['batch_size'], config["num_workers"])
     modified_resnet_encoder = ImageClassifier(config, dataset.num_classes, dataset.input_ch)
 
     if(WANDBLOG):
-        wandb_logger = WandbLogger(project='ReAct-Net', entity='kau-quantum',
+        wandb_logger = WandbLogger(project='RaCUN', entity='kau-quantum',
             config=config, save_code=True, log_model="all", name=config["dataset"] + "-" + config["architecture"] + "-" + name_postfix)
         wandb_logger.watch(modified_resnet_encoder, log="all")
     else:
@@ -39,10 +39,10 @@ def main(config, WANDBLOG):
 if __name__ == "__main__":
     utils.torch_seed()
 
-    parser = argparse.ArgumentParser(description='ReAct Network Training')
+    parser = argparse.ArgumentParser(description='RaCUN Network Training')
     parser.add_argument('--model',  help='resnet18 / resnet50 / resnet101 선택 가능')    # 필요한 인수를 추가
     parser.add_argument('--dataset',help='MNIST / CIFAR10 / ImageNet 선택가능')
-    parser.add_argument('--react', action='store_true')
+    parser.add_argument('--racun', action='store_true')
     parser.add_argument('--wandb', action='store_true')
     parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--epsilon', type=float, default=8/255)
@@ -62,7 +62,7 @@ if __name__ == "__main__":
     "dataset": args.dataset,
     "epochs": 100,
     "batch_size" : args.batchsize,
-    'activation' : "sampling" if args.react else "relu",
+    'activation' : "racun" if args.racun else "relu",
     "num_workers" : int(os.cpu_count() / 2),
     "lr_scheduler" : args.lr_scheduler,
     "adv" : args.adv,

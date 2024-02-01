@@ -87,12 +87,12 @@ class BasicBlock(nn.Module):
         self.bn2 = norm_layer(planes)
         self.downsample = downsample
         self.stride = stride
-        self.bottleneckLayer = nn.ReLU(inplace=True)
+        self.bottleneckLayer = nn.LeakyReLU(inplace=True)
 
-    def configure_react(self, ReActLayer, replaceAll=False):
-        self.bottleneckLayer = ReActLayer()
+    def configure_RaCUN(self, RaCUN, replaceAll=False):
+        self.bottleneckLayer = RaCUN()
         if(replaceAll):
-            self.activation = ReActLayer()
+            self.activation = RaCUN()
 
     def forward(self, x: Tensor) -> Tensor:
         identity = x
@@ -152,11 +152,11 @@ class Bottleneck(nn.Module):
         self.stride = stride
         self.bottleneckLayer = nn.ReLU(inplace=True)
 
-    def configure_react(self, ReActLayer, replaceAll = False):
-        self.bottleneckLayer = ReActLayer()
+    def configure_RaCUN(self, RaCUN, replaceAll = False):
+        self.bottleneckLayer = RaCUN()
         if(replaceAll):
-            self.activation1 = ReActLayer()
-            self.activation2 = ReActLayer()
+            self.activation1 = RaCUN()
+            self.activation2 = RaCUN()
 
     def forward(self, x: Tensor) -> Tensor:
         identity = x
