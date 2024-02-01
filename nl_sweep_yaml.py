@@ -383,12 +383,14 @@ def choose_dataset(config):
             transforms.ToTensor(),
         ])
 
-        data_raw = ImageFolder('~/dataset/ImageNet/2012/ILSVRC2012_img_train', transform=transform)
-        trainset, testset = torch.utils.data.random_split(data_raw, [0.9, 0.1])
+        trainset = ImageFolder('/data/ImageNet/2012/ILSVRC2012_img_train', transform=transform)
+        testset = ImageFolder('/data/ImageNet/2012/ILSVRC2012_img_val', transform=transform)
+        
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'], shuffle=True, num_workers =config['num_workers'])
 
         # testset = ImageFolder('dataset/ImageNet/2012/ILSVRC2012_img_val', transform=transform)
         testloader = torch.utils.data.DataLoader(testset, batch_size=config['batch_size'], shuffle=False, num_workers =config['num_workers'])
+        
         data = (trainloader, testloader)
 
     elif config["dataset"] == "TinyImagenet":
@@ -453,13 +455,13 @@ def train_model():
     file_name = config['activation']
     lr_monitor = LearningRateMonitor(logging_interval='step')
     
-    checkpoint_callback = ModelCheckpoint(monitor="val_acc", mode="max",
-                                          dirpath='./plan',
-                                          filename=file_name + '-val_acc-{val_acc:.4f}')
-    
-    # checkpoint_callback = ModelCheckpoint(monitor="Robust_acc", mode="max",
+    # checkpoint_callback = ModelCheckpoint(monitor="val_acc", mode="max",
     #                                       dirpath='./plan',
-    #                                       filename=file_name + '-Robust_acc-{val_acc:.4f}')
+    #                                       filename=file_name + '-val_acc-{val_acc:.4f}')
+    
+    checkpoint_callback = ModelCheckpoint(monitor="Robust_acc", mode="max",
+                                          dirpath='./plan',
+                                          filename=file_name + '-Robust_acc-{Robust_acc:.4f}')
     
     # trainer = pl.Trainer(max_epochs = config["epochs"],logger= wandb_logger, callbacks=[checkpoint_callback,lr_monitor], devices = find_usable_cuda_devices(1))
     trainer = pl.Trainer(accelerator = 'gpu', max_epochs = config["epochs"],logger= wandb_logger, callbacks=[checkpoint_callback,lr_monitor], devices = device_num)
