@@ -213,7 +213,7 @@ class ModelWrapper(pl.LightningModule):
             model.conv1 = nn.Conv2d(input_ch, 64, kernel_size=(1, 1), stride=(1, 1), padding=(1, 1), bias=False)
             model.maxpool = nn.Identity()
 
-        if(self.config["activation"] == 'sampling'):
+        if(self.config["activation"] == 'racun'):
             for name,child in model.named_children():
                 if(isinstance(child, nn.Sequential)):
                     for sub_name, sub_child in child.named_children():
