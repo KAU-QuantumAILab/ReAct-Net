@@ -274,13 +274,15 @@ class LitAutoEncoder(pl.LightningModule):
             )
         
         if(self.config["lr_scheduler"]):
+            momentum = self.config.get('momentum') if self.config['optimizer'] == "SGD" else self.config.get('beta1')
             steps_per_epoch = self.config["dataloader_len"]
             scheduler_dict = {
                 "scheduler": OneCycleLR(
                     optimizer,
-                    0.1,
+                    max_lr=self.config['lr'],
                     epochs=self.config["epochs"],
                     steps_per_epoch=steps_per_epoch,
+                    base_momentum=momentum,
                 ),
                 "interval": "step",
             }
@@ -383,8 +385,8 @@ def choose_dataset(config):
             transforms.ToTensor(),
         ])
 
-        trainset = ImageFolder('/data/ImageNet/2012/ILSVRC2012_img_train', transform=transform)
-        testset = ImageFolder('/data/ImageNet/2012/ILSVRC2012_img_val', transform=transform)
+        trainset = ImageFolder('~/data/ImageNet/2012/ILSVRC2012_img_train', transform=transform)
+        testset = ImageFolder('~/data/ImageNet/2012/ILSVRC2012_img_val', transform=transform)
         
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'], shuffle=True, num_workers =config['num_workers'])
 
@@ -452,16 +454,17 @@ def train_model():
     wandb_logger.watch(modified_resnet_encoder, log="all")
 
     # file_name = config['activation'] + str(round(config.get('alpha'), 3))
-    file_name = config['activation']
+    file_name = config['activation'] + '-' + config['dataset']
     lr_monitor = LearningRateMonitor(logging_interval='step')
     
-    # checkpoint_callback = ModelCheckpoint(monitor="val_acc", mode="max",
-    #                                       dirpath='./plan',
-    #                                       filename=file_name + '-val_acc-{val_acc:.4f}')
-    
-    checkpoint_callback = ModelCheckpoint(monitor="Robust_acc", mode="max",
-                                          dirpath='./plan',
-                                          filename=file_name + '-Robust_acc-{Robust_acc:.4f}')
+    if config.get('adv') == False:
+        checkpoint_callback = ModelCheckpoint(monitor="val_acc", mode="max",
+                                            dirpath='./plan',
+                                            filename=file_name + '-val_acc-{val_acc:.4f}')
+    else:
+        checkpoint_callback = ModelCheckpoint(monitor="Robust_acc", mode="max",
+                                            dirpath='./plan',
+                                            filename=file_name + '-Robust_acc-{Robust_acc:.4f}')
     
     # trainer = pl.Trainer(max_epochs = config["epochs"],logger= wandb_logger, callbacks=[checkpoint_callback,lr_monitor], devices = find_usable_cuda_devices(1))
     trainer = pl.Trainer(accelerator = 'gpu', max_epochs = config["epochs"],logger= wandb_logger, callbacks=[checkpoint_callback,lr_monitor], devices = device_num)
