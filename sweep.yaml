@@ -1,40 +1,56 @@
-method: bayes
+method: grid
 metric:
-  goal: maximize
-  name: val_acc
-name: ImageNet100-resnet18-adv
+  goal: minimize
+  name: val_loss
+name: ImageNet100-racun-adv-sgd-onecyclelr
 parameters:
   activation:
-    value: relu
+    values:
+      - racun
   adv:
-    value: true
-  adv_epsilon:
-    value: 0.03137254901960784
+    values:
+      - true
   architecture:
     value: resnet18
   batch_size:
-    values:
-      - 128
+    values: 
       - 256
+      - 512
   dataset:
     value: ImageNet
   epochs:
-    values:
-      - 100
-  lr:
-    distribution: uniform
-    max: 0.1
-    min: 0.0001
-  lr_scheduler:
-    value: false
-  num_workers:
-    values:
-      - 24
-  optimizer:
     values: 
+      - 15
+      - 20
+      - 25
+  adv_epsilon:
+    value: 0.03
+  momentum:
+    value: 0.9
+  lr:
+    values:
+      - 0.7
+      - 1
+      - 1.5
+  lr_scheduler:
+    values:
+      - true
+  num_workers:
+    value: 24
+  optimizer:
+    values:
       - SGD
-      - Adam
   replace_all:
     value: false
-
+  wd:
+    values:
+      - 0.0001
+      - 0.0005
+      - 0.001
+      - 0.005
+  final_div_fac:
+    values:
+      - 0.0001
+      - 0.01
+      - 0.6
 program: sweep.py

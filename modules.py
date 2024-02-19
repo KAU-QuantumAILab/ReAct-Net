@@ -143,8 +143,8 @@ class ImageClassifier(pl.LightningModule):
             optimizer = torch.optim.SGD(
                 self.parameters(),
                 lr=self.config["lr"],
-                momentum=0.9,
-                weight_decay=5e-4,
+                momentum=self.config['momentum'],
+                weight_decay=self.config['wd'],
             )
         elif(self.config['optimizer'] == "AdamW"):
             optimizer = torch.optim.AdamW(
@@ -153,13 +153,16 @@ class ImageClassifier(pl.LightningModule):
             )
         
         if(self.config["lr_scheduler"]):
-            steps_per_epoch = 45000 // self.config["batch_size"]
+            train_dataloader = self.trainer.datamodule.train_dataloader() 
+            data_per_gpu = len(train_dataloader.dataset) // 4 + 1
+            steps_per_epoch = data_per_gpu // self.config["batch_size"] + 1
             scheduler_dict = {
                 "scheduler": OneCycleLR(
                     optimizer,
-                    0.1,
+                    self.config["lr"],
                     epochs=self.config["epochs"],
-                    steps_per_epoch=steps_per_epoch,
+                    steps_per_epoch = steps_per_epoch,
+                    final_div_factor = self.config["epochs"],
                 ),
                 "interval": "step",
             }
