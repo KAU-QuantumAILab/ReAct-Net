@@ -20,6 +20,7 @@ import random
 # from lightning.pytorch.accelerators import find_usable_cuda_devices
 import torchattacks
 import yaml
+import numpy as np
 
 
 ##################################################################################
@@ -52,6 +53,20 @@ with open(ypath) as file:
 # dataset = "CIFAR10"                     # CIFAR10 / ImageNet
 # project_name = "reAct_sweep_ImageNet"            # wandb project name
 # dataset = "ImageNet"
+
+###################################################################################
+
+def seed_everything(seed:int = 1004):
+    random.seed(seed)
+    np.random.seed(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)  # current gpu seed
+    torch.cuda.manual_seed_all(seed) # All gpu seed
+    # torch.backends.cudnn.deterministic = True  # type: ignore
+    # torch.backends.cudnn.benchmark = False  # True로 하면 gpu에 적합한 알고리즘을 선택함.
+
+
 
 ###################################################################################
 
@@ -476,6 +491,7 @@ def train_model():
 
 
 def main():
+    seed_everything(42)
     resume = sweep_config.get('sweep_id')
     sweep_id = resume if resume else wandb.sweep(sweep_config, project=project_name)
     # sweep_id = "gt3qp3cj"
