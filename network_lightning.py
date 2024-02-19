@@ -13,13 +13,14 @@ import utils
 
 
 def main(config, WANDBLOG):
-    name_postfix = "reference" if config['activation'] == 'relu' else "RaCUN"
-    dataset = CustomDataModule(config['dataset'], 1000, config['batch_size'], config["num_workers"])
+    class_num = 100
+    name_postfix = "relu" if config['activation'] == 'relu' else "RaCUN"
+    dataset = CustomDataModule(config['dataset'], class_num, config['batch_size'], config["num_workers"])
     modified_resnet_encoder = ImageClassifier(config, dataset.num_classes, dataset.input_ch)
 
     if(WANDBLOG):
         wandb_logger = WandbLogger(project='RaCUN', entity='kau-quantum',
-            config=config, save_code=True, log_model="all", name=config["dataset"] + "-" + config["architecture"] + "-" + name_postfix)
+            config=config, save_code=True, log_model="all", name=config["dataset"] + str(class_num) + "-" + config["architecture"] + "-" + name_postfix)
         wandb_logger.watch(modified_resnet_encoder, log="all")
     else:
         tb_logger = TensorBoardLogger(save_dir="logs/")
@@ -32,7 +33,7 @@ def main(config, WANDBLOG):
     lr_monitor = LearningRateMonitor(logging_interval='step')
     checkpoint_callback = ModelCheckpoint(monitor="val_acc", mode="max")
 
-    trainer = pl.Trainer(max_epochs = config["epochs"],logger= wandb_logger if WANDBLOG else tb_logger, callbacks=[checkpoint_callback,lr_monitor])
+    trainer = pl.Trainer(max_epochs = config["epochs"],logger= wandb_logger if WANDBLOG else tb_logger, callbacks=[checkpoint_callback,lr_monitor],log_every_n_steps= 15 if config["batch_size"] >= 512 else 50)
     trainer.fit(modified_resnet_encoder, dataset)
     # trainer.test(model=modified_resnet_encoder,dataloaders=testloader)
 
