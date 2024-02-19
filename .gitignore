@@ -1,6 +1,5 @@
 logs
 __pycache__
-Sampling_Network
-ReAct-Net
+RaCUN
 wandb
 lightning_logs
