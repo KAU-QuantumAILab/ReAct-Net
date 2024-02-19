@@ -68,15 +68,25 @@ class CustomDataModule(L.LightningDataModule):
                 transforms.CenterCrop((224,224)),
                 transforms.ToTensor(),
             ])
+            test_transform = transforms.Compose([
+                transforms.Resize((224, 224)),
+                transforms.ToTensor(),
+            ])
 
             if(stage == "fit"):
-                data_raw = ImageFolder('/data/ImageNet/2012/ILSVRC2012_img_train', transform=train_transform)
+                train_data_raw = ImageFolder('/data/ImageNet/2012/ILSVRC2012_img_train', transform=train_transform)
+                val_data_raw = ImageFolder('/data/ImageNet/2012/ILSVRC2012_img_val', transform=test_transform)
+                
                 labels = list(range(self.num_classes))
-                indices = [idx for idx, target in enumerate(data_raw.targets) if target in labels]
-                data_raw = torch.utils.data.Subset(data_raw, indices)
+                train_indices = [idx for idx, target in enumerate(train_data_raw.targets) if target in labels]
+                val_indices = [idx for idx, target in enumerate(val_data_raw.targets) if target in labels]
+                train_data_raw = torch.utils.data.Subset(train_data_raw, train_indices)
+                val_data_raw = torch.utils.data.Subset(val_data_raw, val_indices)
 
                 # assert False
-                self.trainset, self.testset = random_split(data_raw, [0.9, 0.1])
+                # self.trainset, self.testset = random_split(data_raw, [0.9, 0.1])
+                self.trainset, self.testset = train_data_raw, val_data_raw
+
 
     def train_dataloader(self):
         return DataLoader(self.trainset, batch_size=self.batchsize, shuffle=True, num_workers =self.num_workers)
