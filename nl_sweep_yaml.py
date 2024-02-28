@@ -30,7 +30,8 @@ parser = argparse.ArgumentParser(
     description='reAct sweep with yaml \n usage: nl_sweep_yaml.py --yaml [yaml_path] --devices 0 --project_name [pname] -- entity [ename]\n')
 
 parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
-parser.add_argument('--project_name', default="Brelu_ImageNet100", help='wandb project name')
+# parser.add_argument('--project_name', default="Brelu_ImageNet100", help='wandb project name')
+parser.add_argument('--project_name', default="early_Stop_test", help='wandb project name')
 parser.add_argument('--entity', default='kau-quantum', help='wandb entity name')
 parser.add_argument('--devices', default=0, type=int, help='choose the CUDA(ex: 0, 1, 2, -1)')
 
@@ -63,8 +64,8 @@ def seed_everything(seed:int = 1004):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)  # current gpu seed
     torch.cuda.manual_seed_all(seed) # All gpu seed
-    # torch.backends.cudnn.deterministic = True  # type: ignore
-    # torch.backends.cudnn.benchmark = False  # True로 하면 gpu에 적합한 알고리즘을 선택함.
+    torch.backends.cudnn.deterministic = True  # type: ignore
+    torch.backends.cudnn.benchmark = False  # True로 하면 gpu에 적합한 알고리즘을 선택함.
 
 
 
@@ -446,6 +447,10 @@ def choose_dataset(config):
 def train_model():
     run = wandb.init(project=project_name, entity=entity)
     config = wandb.config
+    seed = config.get('seed')
+    seed = seed if seed is not None else 42
+    print(f"Seed is {seed}")
+    seed_everything(seed)
     wandb.define_metric("val_acc", summary="max")
     wandb.define_metric("Robust_acc", summary="max")
     # name_postfix = "reference" if config['activation'] == 'relu' else "ReAct"
@@ -469,17 +474,17 @@ def train_model():
     wandb_logger.watch(modified_resnet_encoder, log="all")
 
     # file_name = config['activation'] + str(round(config.get('alpha'), 3))
-    file_name = config['activation'] + '-' + config['dataset']
+    file_name = config['activation'] + '-' + config['dataset'] + '-'
     lr_monitor = LearningRateMonitor(logging_interval='step')
     
     if config.get('adv') == False:
         checkpoint_callback = ModelCheckpoint(monitor="val_acc", mode="max",
-                                            dirpath='./plan',
-                                            filename=file_name + '-val_acc-{val_acc:.4f}')
+                                            dirpath=f"./ckpt/{config['dataset']}/{config['activation']}",
+                                            filename=file_name + '{val_acc:.4f}')
     else:
         checkpoint_callback = ModelCheckpoint(monitor="Robust_acc", mode="max",
-                                            dirpath='./plan',
-                                            filename=file_name + '-Robust_acc-{Robust_acc:.4f}')
+                                            dirpath=f"./ckpt/{config['dataset']}/{config['activation']}",
+                                            filename=file_name + '{Robust_acc:.4f}')
     
     # trainer = pl.Trainer(max_epochs = config["epochs"],logger= wandb_logger, callbacks=[checkpoint_callback,lr_monitor], devices = find_usable_cuda_devices(1))
     trainer = pl.Trainer(accelerator = 'gpu', max_epochs = config["epochs"],logger= wandb_logger, callbacks=[checkpoint_callback,lr_monitor], devices = device_num)
@@ -491,7 +496,6 @@ def train_model():
 
 
 def main():
-    seed_everything(42)
     resume = sweep_config.get('sweep_id')
     sweep_id = resume if resume else wandb.sweep(sweep_config, project=project_name)
     # sweep_id = "gt3qp3cj"
