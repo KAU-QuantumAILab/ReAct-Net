@@ -9,7 +9,7 @@ from custom_resnet import resnet
 import lightning.pytorch as pl
 from torchmetrics.functional import accuracy
 from lightning.pytorch.loggers import WandbLogger, TensorBoardLogger 
-from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
+from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor, EarlyStopping
 import torch.optim.lr_scheduler as lr_scheduler
 from torch.optim.lr_scheduler import OneCycleLR
 from models import *
@@ -21,6 +21,7 @@ import random
 import torchattacks
 import yaml
 import numpy as np
+from torch.nn import GELU
 
 
 ##################################################################################
@@ -30,8 +31,10 @@ parser = argparse.ArgumentParser(
     description='reAct sweep with yaml \n usage: nl_sweep_yaml.py --yaml [yaml_path] --devices 0 --project_name [pname] -- entity [ename]\n')
 
 parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
+# parser.add_argument('--project_name', default="Brelu", help='wandb project name')
 # parser.add_argument('--project_name', default="Brelu_ImageNet100", help='wandb project name')
-parser.add_argument('--project_name', default="early_Stop_test", help='wandb project name')
+# parser.add_argument('--project_name', default="early_Stop_test", help='wandb project name')
+parser.add_argument('--project_name', default="Brelu_CIFAR-10", help='wandb project name')
 parser.add_argument('--entity', default='kau-quantum', help='wandb entity name')
 parser.add_argument('--devices', default=0, type=int, help='choose the CUDA(ex: 0, 1, 2, -1)')
 
@@ -116,113 +119,49 @@ class ModelWrapper(pl.LightningModule):
             model.conv1 = nn.Conv2d(1, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
             model.maxpool = nn.Identity()
 
-        if(activation == 'sampling'):
-            for name,child in model.named_children():
-                if(isinstance(child, nn.Sequential)):
-                    for sub_name, sub_child in child.named_children():
-                        sub_child.configure_react(SamplingLayer, replaceAll=self.config.get('replaceAll'))
 
-        elif(activation == 'brelu'):
-            for name,child in model.named_children():
-                if(isinstance(child, nn.Sequential)):
-                    for sub_name, sub_child in child.named_children():
-                        sub_child.configure_react(BReLU, replaceAll=self.config.get('replaceAll'))
-
-        elif(activation == 'leaky'):
-            for name,child in model.named_children():
-                if(isinstance(child, nn.Sequential)):
-                    for sub_name, sub_child in child.named_children():
-                        sub_child.configure_react(Leaky_BReLU, replaceAll=self.config.get('replaceAll'))
-                        
-        elif(activation == 'Vbrelu'):
+        activation_functions = {
+            'sampling' : SamplingLayer,
+            'brelu' : BReLU,
+            'Vbrelu' : VariableBReLU,
+            'leaky' : Leaky_BReLU,
+            'SSCA' : SSCA,
+            'SARB' : SARB,
+            'SARBSC' : SARBSC,
+            'BatchWiseSARB' : BatchWiseSARB,
+            'BatchWiseSARBSC' : BatchWiseSARBSC,
+            'ChannelWiseSARB' : ChannelWiseSARB,
+            'ChannelWiseSARBSC' : ChannelWiseSARBSC,
+            'ReLUPlusBRelu' : ReLUPlusBRelu,
+            'MAct' : MeasureAct,
+            'MActSC' : MeasureActSC,
+            'SMAct' : SomeMeasureAct,
+            'SMActSC' : SomeMeasureActSC,
+            'gelu' : GELU,
+            'TernaryOut' : TernaryOut,
+            'TernaryOutSC' : TernaryOutSC,
+            'SomeTernaryOut' : SomeTernaryOut,
+            'SomeTernaryOutSC' : TernaryOutSC,
+            'TernaryMul' : TernaryMul,
+            'TernaryMulSC' : TernaryMulSC,
+            'TernaryMulSym' : TernaryMulSym,
+            'TernaryMulSymSC' : TernaryMulSymSC,
+        }
+        
+        if activation == 'relu':
+            pass
+        
+        elif activation == 'Vbrelu':
             for name,child in model.named_children():
                 if(isinstance(child, nn.Sequential)):
                     for sub_name, sub_child in child.named_children():
                         sub_child.configure_react(VariableBReLU, replaceAll=self.config.get('replaceAll'), alpha=self.config.get('alpha'))
-
-        elif(activation == 'MAct'):
-            for name,child in model.named_children():
-                if(isinstance(child, nn.Sequential)):
-                    for sub_name, sub_child in child.named_children():
-                        sub_child.configure_react(MeasureAct, replaceAll=self.config.get('replaceAll'))
-                        
-        elif(activation == 'SMAct'):
-            for name,child in model.named_children():
-                if(isinstance(child, nn.Sequential)):
-                    for sub_name, sub_child in child.named_children():
-                        sub_child.configure_react(SomeMeasureAct, replaceAll=self.config.get('replaceAll'))
-            
-        elif(activation == 'SARB'):
-            for name,child in model.named_children():
-                if(isinstance(child, nn.Sequential)):
-                    for sub_name, sub_child in child.named_children():
-                        sub_child.configure_react(SARB, replaceAll=self.config.get('replaceAll'))
         
-        elif(activation == 'SSCA'):
+        else:
             for name,child in model.named_children():
                 if(isinstance(child, nn.Sequential)):
                     for sub_name, sub_child in child.named_children():
-                        sub_child.configure_react(SSCA, replaceAll=self.config.get('replaceAll'))
-                        
-        elif(activation == 'MActSC'):
-            for name,child in model.named_children():
-                if(isinstance(child, nn.Sequential)):
-                    for sub_name, sub_child in child.named_children():
-                        sub_child.configure_react(MeasureActSC, replaceAll=self.config.get('replaceAll'))
-                        
-        elif(activation == 'SMActSC'):
-            for name,child in model.named_children():
-                if(isinstance(child, nn.Sequential)):
-                    for sub_name, sub_child in child.named_children():
-                        sub_child.configure_react(SomeMeasureActSC, replaceAll=self.config.get('replaceAll'))
-                        
-        elif(activation == 'SARBSC'):
-            for name,child in model.named_children():
-                if(isinstance(child, nn.Sequential)):
-                    for sub_name, sub_child in child.named_children():
-                        sub_child.configure_react(SARBSC, replaceAll=self.config.get('replaceAll'))
-                        
-        elif(activation == 'BatchWiseSARB'):
-            for name,child in model.named_children():
-                if(isinstance(child, nn.Sequential)):
-                    for sub_name, sub_child in child.named_children():
-                        sub_child.configure_react(BatchWiseSARB, replaceAll=self.config.get('replaceAll'))
-                        
-        elif(activation == 'BatchWiseSARBSC'):
-            for name,child in model.named_children():
-                if(isinstance(child, nn.Sequential)):
-                    for sub_name, sub_child in child.named_children():
-                        sub_child.configure_react(BatchWiseSARBSC, replaceAll=self.config.get('replaceAll'))
-                        
-        elif(activation == 'ImproveBatchWiseSARB'):
-            for name,child in model.named_children():
-                if(isinstance(child, nn.Sequential)):
-                    for sub_name, sub_child in child.named_children():
-                        sub_child.configure_react(ImproveBatchWiseSARB, replaceAll=self.config.get('replaceAll'))
-                        
-        elif(activation == 'ImproveBatchWiseSARBSC'):
-            for name,child in model.named_children():
-                if(isinstance(child, nn.Sequential)):
-                    for sub_name, sub_child in child.named_children():
-                        sub_child.configure_react(ImproveBatchWiseSARBSC, replaceAll=self.config.get('replaceAll'))
-                        
-        elif(activation == 'ChannelWiseSARB'):
-            for name,child in model.named_children():
-                if(isinstance(child, nn.Sequential)):
-                    for sub_name, sub_child in child.named_children():
-                        sub_child.configure_react(ChannelWiseSARB, replaceAll=self.config.get('replaceAll'))
-                        
-        elif(activation == 'ChannelWiseSARBSC'):
-            for name,child in model.named_children():
-                if(isinstance(child, nn.Sequential)):
-                    for sub_name, sub_child in child.named_children():
-                        sub_child.configure_react(ChannelWiseSARBSC, replaceAll=self.config.get('replaceAll'))
-                        
-        elif(activation == 'ReLUPlusBRelu'):
-            for name,child in model.named_children():
-                if(isinstance(child, nn.Sequential)):
-                    for sub_name, sub_child in child.named_children():
-                        sub_child.configure_react(ReLUPlusBRelu, replaceAll=self.config.get('replaceAll'))
+                        sub_child.configure_react(activation_functions[self.config['activation']], replaceAll=self.config.get('replaceAll'))
         
         
         return model
@@ -280,7 +219,7 @@ class LitAutoEncoder(pl.LightningModule):
                 self.parameters(),
                 lr=self.config["lr"],
                 momentum=self.config["momentum"],
-                weight_decay=5e-4,
+                weight_decay=self.config['wd'],
             )
         elif(self.config['optimizer'] == "AdamW"):
             optimizer = torch.optim.AdamW(
@@ -475,19 +414,32 @@ def train_model():
 
     # file_name = config['activation'] + str(round(config.get('alpha'), 3))
     file_name = config['activation'] + '-' + config['dataset'] + '-'
+    
+    callbacks = []
     lr_monitor = LearningRateMonitor(logging_interval='step')
+    callbacks.append(lr_monitor)
     
     if config.get('adv') == False:
         checkpoint_callback = ModelCheckpoint(monitor="val_acc", mode="max",
                                             dirpath=f"./ckpt/{config['dataset']}/{config['activation']}",
                                             filename=file_name + '{val_acc:.4f}')
+        callbacks.append(checkpoint_callback)
+        
+        # early_stop = EarlyStopping('val_acc', mode='max', patience=8)
+        # callbacks.append(early_stop)
     else:
         checkpoint_callback = ModelCheckpoint(monitor="Robust_acc", mode="max",
                                             dirpath=f"./ckpt/{config['dataset']}/{config['activation']}",
                                             filename=file_name + '{Robust_acc:.4f}')
+        callbacks.append(checkpoint_callback)
+        
+        # early_stop = EarlyStopping('Robust_acc', mode='max', patience=8)
+        # callbacks.append(early_stop)
+    
+    
     
     # trainer = pl.Trainer(max_epochs = config["epochs"],logger= wandb_logger, callbacks=[checkpoint_callback,lr_monitor], devices = find_usable_cuda_devices(1))
-    trainer = pl.Trainer(accelerator = 'gpu', max_epochs = config["epochs"],logger= wandb_logger, callbacks=[checkpoint_callback,lr_monitor], devices = device_num)
+    trainer = pl.Trainer(accelerator = 'gpu', max_epochs = config["epochs"],logger= wandb_logger, callbacks=callbacks, devices = device_num)
     # trainer = pl.Trainer(max_epochs = config["epochs"],logger= wandb_logger, callbacks=[lr_monitor], devices = device_num)
     trainer.fit(model=modified_resnet_encoder, train_dataloaders=data[0], val_dataloaders=data[1])
     torch.cuda.empty_cache()

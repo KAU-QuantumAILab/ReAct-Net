@@ -377,6 +377,202 @@ class ReLUPlusBRelu(pl.LightningModule):
         return self.relu(x) + self.brelu(x)
         
 
+
+class TernaryOut(pl.LightningModule):
+    '''
+    2번 베르누이 샘플링을 진행한다. 
+    샘플링 결과에 따라서 다음과 같이 출력한다.
+    00 : 0
+    01 : -1
+    10 : -1
+    11 : 1
+    '''
+    def __init__(self):
+        super(TernaryOut, self).__init__()
+        
+    def forward(self, x):
+        b = torch.distributions.bernoulli.Bernoulli(logits=x)
+        b1 = b.sample()
+        b2 = b.sample()
+
+        epsilon = (-torch.logical_xor(b1, b2, out=torch.empty(b1.shape, dtype=x.dtype)) + torch.logical_and(b1, b2)) * (1/(x+1e-16))
+        
+        return x * epsilon
+
+
+class TernaryOutSC(pl.LightningModule):
+    '''
+    2번 베르누이 샘플링을 진행한다. 
+    샘플링 결과에 따라서 다음과 같이 출력한다.
+    확률식으로 sin, cos 사용
+    00 : 0
+    01 : -1
+    10 : -1
+    11 : 1
+    '''
+    def __init__(self):
+        super(TernaryOutSC, self).__init__()
+        
+    def forward(self, x):
+        p = -torch.sin(x) * torch.cos(x + (torch.pi/2))
+        p = torch.where(p < 0, 0, p)
+        p = torch.where(p > 1, 1, p)
+        
+        b = torch.distributions.bernoulli.Bernoulli(probs=p)
+        b1 = b.sample()
+        b2 = b.sample()
+
+        epsilon = (-torch.logical_xor(b1, b2, out=torch.empty(b1.shape, dtype=x.dtype)) + torch.logical_and(b1, b2)) * (1/(x+1e-16))
+        
+        return x * epsilon
+
+
+class SomeTernaryOut(pl.LightningModule):
+    '''
+    2번 베르누이 샘플링을 진행한다. 
+    샘플링 결과에 따라서 다음과 같이 출력한다.
+    00 : 0
+    01 : 1
+    10 : -1
+    11 : x
+    '''
+    def __init__(self):
+        super(SomeTernaryOut, self).__init__()
+        
+    def forward(self, x):
+        b = torch.distributions.bernoulli.Bernoulli(logits=x)
+        b1 = b.sample()
+        b2 = b.sample()
+        
+        epsilon = (torch.logical_xor(b1, b2, out=torch.empty(b1.shape, dtype=x.dtype)) * (1/(x+1e-16)) * (torch.ones_like(b1) - (2*b1) + torch.logical_and(b1, b2))) + torch.logical_and(b1, b2)
+        
+        return x * epsilon
+
+
+class SomeTernaryOutSC(pl.LightningModule):
+    '''
+    2번 베르누이 샘플링을 진행한다. 
+    샘플링 결과에 따라서 다음과 같이 출력한다.
+    00 : 0
+    01 : 1
+    10 : -1
+    11 : x
+    '''
+    def __init__(self):
+        super(SomeTernaryOutSC, self).__init__()
+        
+    def forward(self, x):
+        p = -torch.sin(x) * torch.cos(x + (torch.pi/2))
+        p = torch.where(p < 0, 0, p)
+        p = torch.where(p > 1, 1, p)
+        
+        b = torch.distributions.bernoulli.Bernoulli(probs=p)
+        b1 = b.sample()
+        b2 = b.sample()
+        
+        epsilon = (torch.logical_xor(b1, b2, out=torch.empty(b1.shape, dtype=x.dtype)) * (1/(x+1e-16)) * (torch.ones_like(b1) - (2*b1) + torch.logical_and(b1, b2))) + torch.logical_and(b1, b2)
+        
+        return x * epsilon
+
+
+class TernaryMul(pl.LightningModule):
+    '''
+    베르누이 샘플링 결과에 따라 다음 값을 곱해서 출력한다.
+    00 : 0 -> 0
+    01 : -1 -> -x
+    10 : -1 -> -x
+    11 : 1 -> x
+    '''
+    def __init__(self):
+        super(TernaryMul, self).__init__()
+        
+    def forward(self, x):
+        b = torch.distributions.bernoulli.Bernoulli(logits=x)
+        b1 = b.sample()
+        b2 = b.sample()
+
+        epsilon = -torch.logical_xor(b1, b2, out=torch.empty(b1.shape, dtype=x.dtype)) + torch.logical_and(b1, b2)
+
+        return x * epsilon
+
+
+class TernaryMulSC(pl.LightningModule):
+    '''
+    베르누이 샘플링 결과에 따라 다음 값을 곱해서 출력한다.
+    00 : 0 -> 0
+    01 : -1 -> -x
+    10 : -1 -> -x
+    11 : 1 -> x
+    '''
+    def __init__(self):
+        super(TernaryMulSC, self).__init__()
+        
+    def forward(self, x):
+        p = -torch.sin(x) * torch.cos(x + (torch.pi/2))
+        p = torch.where(p < 0, 0, p)
+        p = torch.where(p > 1, 1, p)
+        
+        b = torch.distributions.bernoulli.Bernoulli(probs=p)
+        b1 = b.sample()
+        b2 = b.sample()
+
+        epsilon = -torch.logical_xor(b1, b2, out=torch.empty(b1.shape, dtype=x.dtype)) + torch.logical_and(b1, b2)
+        
+        return x * epsilon
+
+
+class TernaryMulSym(pl.LightningModule):
+    '''
+    베르누이 샘플링 결과에 따라 다음 값을 곱해서 출력한다.
+    00 : -1 -> -x
+    01 : 0 -> 0
+    10 : 0 -> 0
+    11 : 1 -> x
+    '''
+    def __init__(self):
+        super(TernaryMulSym, self).__init__()
+        
+    def forward(self, x):
+        b = torch.distributions.bernoulli.Bernoulli(logits=x)
+        b1 = b.sample()
+        b2 = b.sample()
+
+        epsilon = torch.logical_xor(b1, b2, out=torch.empty(b1.shape, dtype=x.dtype)) -torch.ones_like(b1) + 2 * torch.logical_and(b1, b2)
+        
+        return x * epsilon
+
+
+class TernaryMulSymSC(pl.LightningModule):
+    '''
+    베르누이 샘플링 결과에 따라 다음 값을 곱해서 출력한다.
+    00 : -1 -> -x
+    01 : 0 -> 0
+    10 : 0 -> 0
+    11 : 1 -> x
+    '''
+    def __init__(self):
+        super(TernaryMulSymSC, self).__init__()
+        
+    def forward(self, x):
+        p = -torch.sin(x) * torch.cos(x + (torch.pi/2))
+        p = torch.where(p < 0, 0, p)
+        p = torch.where(p > 1, 1, p)
+        
+        b = torch.distributions.bernoulli.Bernoulli(probs=p)
+        b1 = b.sample()
+        b2 = b.sample()
+
+        epsilon = torch.logical_xor(b1, b2, out=torch.empty(b1.shape, dtype=x.dtype)) -torch.ones_like(b1) + 2 * torch.logical_and(b1, b2)
+        
+        return x * epsilon
+
+        
+        
+        
+        
+        
+        
+
 class MLPMnist(pl.LightningModule):
     def __init__(self, config):
         super(MLPMnist, self).__init__()
