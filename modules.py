@@ -2,16 +2,14 @@
 import torch
 import lightning as L
 import lightning.pytorch as pl
-from torch.autograd import Variable
-from custom_resnet import resnet
+from torchvision.models import resnet18, resnet50
 from torch import optim, nn, Tensor
 from torch.utils.data import DataLoader, random_split
-import torch.optim.lr_scheduler as lr_scheduler
 from torch.optim.lr_scheduler import OneCycleLR
 import torchvision.transforms as transforms
 from torchvision.datasets import MNIST, CIFAR10, ImageNet, ImageFolder
 from torchmetrics.functional import accuracy
-from racun import SamplingLayer
+from racun import BatchRaCUN, BatchRaCUNWrapper
 import torchattacks
 import utils
 
@@ -162,7 +160,7 @@ class ImageClassifier(pl.LightningModule):
                     self.config["lr"],
                     epochs=self.config["epochs"],
                     steps_per_epoch = steps_per_epoch,
-                    final_div_factor = self.config["epochs"],
+                    final_div_factor = self.config["final_div_fac"],
                 ),
                 "interval": "step",
             }
@@ -193,8 +191,7 @@ class ImageClassifier(pl.LightningModule):
         if stage:
             self.log(f"{stage}_loss", loss, prog_bar=True, sync_dist=True)
             self.log(f"{stage}_acc", acc, prog_bar=True, sync_dist=True)
-            if(self.config['adv']):
-                self.evaluateRobust(x, y)
+            self.evaluateRobust(x, y)
 
     def validation_step(self, batch, batch_idx):
         self.evaluate(batch, "val")
@@ -216,22 +213,20 @@ class ModelWrapper(pl.LightningModule):
     def create_model(self, num_classes,input_ch):
         
         resnet_models = {
-            'resnet18' : resnet.resnet18,
-            'resnet50' : resnet.resnet50,
-            'resnet101' : resnet.resnet101
+            'resnet18' : resnet18,
+            'resnet50' : resnet50
         }
 
-        model = resnet_models[self.config['architecture']](weights=False, num_classes=num_classes)
+        racunWrapper = BatchRaCUNWrapper(self.config["batch_racun_scale"])
+        if(self.config["activation"] == 'racun'):
+            model = resnet_models[self.config['architecture']](weights=False, num_classes=num_classes, norm_layer = racunWrapper.make_BatchRaCUN)
+        else:
+            model = resnet_models[self.config['architecture']](weights=False, num_classes=num_classes)
+            
         if(self.config['dataset'] != 'ImageNet'):
             model.conv1 = nn.Conv2d(input_ch, 64, kernel_size=(1, 1), stride=(1, 1), padding=(1, 1), bias=False)
             model.maxpool = nn.Identity()
 
-        if(self.config["activation"] == 'racun'):
-            for name,child in model.named_children():
-                if(isinstance(child, nn.Sequential)):
-                    for sub_name, sub_child in child.named_children():
-                        sub_child.configure_RaCUN(SamplingLayer, self.config["replace_all"])
-        
         return model
 
     def forward(self, x):

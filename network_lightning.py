@@ -53,7 +53,7 @@ if __name__ == "__main__":
     parser.add_argument('--lr_scheduler', action='store_true')
     parser.add_argument('--adv', action='store_true')
     parser.add_argument('--replace_all', action='store_true')
-    parser.add_argument('--final_div_fac', type=float, default=1e3)
+    parser.add_argument('--final_div_fac', type=float, default=1e4)
     parser.add_argument('--wd', type=float, default=5e-4)
     args = parser.parse_args()
 
@@ -65,7 +65,7 @@ if __name__ == "__main__":
     "architecture": args.model,
     "momentum": args.momentum,
     "dataset": args.dataset,
-    "epochs": 20,
+    "epochs": 35,
     "batch_size" : args.batchsize,
     'activation' : "racun" if args.racun else "relu",
     "num_workers" : int(os.cpu_count() / 2),
@@ -74,6 +74,7 @@ if __name__ == "__main__":
     "replace_all" : args.replace_all,
     "adv_epsilon" : args.epsilon,
     "final_div_fac" : args.final_div_fac,
+    "batch_racun_scale" : 2,
     "wd" : args.wd,
     }
     print(config)
