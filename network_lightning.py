@@ -5,7 +5,7 @@ import torch
 import lightning.pytorch as pl
 from lightning.pytorch.loggers import WandbLogger, TensorBoardLogger 
 from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
-from modules import  CustomDataModule, ImageClassifier
+from modules import  CustomDataModule, TestDataModule, ImageClassifier
 import wandb
 import os
 import argparse
@@ -13,9 +13,14 @@ import utils
 
 
 def main(config, WANDBLOG):
-    class_num = 100
+    class_num = 1000
+    test = True
     name_postfix = "relu" if config['activation'] == 'relu' else "RaCUN"
     dataset = CustomDataModule(config['dataset'], class_num, config['batch_size'], config["num_workers"])
+
+    if(config['dataset'] == "ImageNet" and test):
+        test_dataset = TestDataModule(class_num, config['batch_size'], config["num_workers"])
+
     modified_resnet_encoder = ImageClassifier(config, dataset.num_classes, dataset.input_ch)
 
     if(WANDBLOG):
@@ -35,7 +40,11 @@ def main(config, WANDBLOG):
 
     trainer = pl.Trainer(max_epochs = config["epochs"],logger= wandb_logger if WANDBLOG else tb_logger, callbacks=[checkpoint_callback,lr_monitor],log_every_n_steps= 15 if config["batch_size"] >= 512 else 50)
     trainer.fit(modified_resnet_encoder, dataset)
-    # trainer.test(model=modified_resnet_encoder,dataloaders=testloader)
+
+
+    if(config['dataset'] == "ImageNet" and test):
+        trainer = pl.Trainer(devices=1, num_nodes=1)
+        trainer.test(model=modified_resnet_encoder,dataloaders=test_dataset)
 
 if __name__ == "__main__":
     utils.torch_seed()
@@ -47,14 +56,14 @@ if __name__ == "__main__":
     parser.add_argument('--wandb', action='store_true')
     parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--epsilon', type=float, default=8/255)
-    parser.add_argument('--momentum', type=float, default=0)
+    parser.add_argument('--momentum', type=float, default=0.9)
     parser.add_argument('--optimizer', default="SGD", help="Adam / SGD / AdamW 선택가능")
     parser.add_argument('--batchsize', type=int, default=256)
     parser.add_argument('--lr_scheduler', action='store_true')
     parser.add_argument('--adv', action='store_true')
     parser.add_argument('--replace_all', action='store_true')
     parser.add_argument('--final_div_fac', type=float, default=1e4)
-    parser.add_argument('--wd', type=float, default=5e-4)
+    parser.add_argument('--wd', type=float, default=1e-4)
     args = parser.parse_args()
 
     torch.set_float32_matmul_precision('high')
@@ -74,7 +83,7 @@ if __name__ == "__main__":
     "replace_all" : args.replace_all,
     "adv_epsilon" : args.epsilon,
     "final_div_fac" : args.final_div_fac,
-    "batch_racun_scale" : 2,
+    "batch_racun_scale" : 8,
     "wd" : args.wd,
     }
     print(config)

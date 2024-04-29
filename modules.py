@@ -12,6 +12,7 @@ from torchmetrics.functional import accuracy
 from racun import BatchRaCUN, BatchRaCUNWrapper
 import torchattacks
 import utils
+import preactresnet
 
 class CustomDataModule(L.LightningDataModule):
     def __init__(self, dataset, classes=1000, batchsize=128, num_workers=20):
@@ -92,6 +93,33 @@ class CustomDataModule(L.LightningDataModule):
     def val_dataloader(self):
         return DataLoader(self.testset, batch_size=self.batchsize, shuffle=False, num_workers =self.num_workers)
 
+class TestDataModule(L.LightningDataModule):
+    def __init__(self, classes=1000, batchsize=128, num_workers=20):
+        super().__init__()
+        self.batchsize = batchsize
+        self.num_workers = num_workers
+        self.num_classes = classes
+
+    def setup(self, stage: str):
+        
+        test_transform = transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+        ])
+
+        self.test_set_list = []
+        for i in range(5):
+            test_data_raw = ImageFolder(f'/data/ImageNet/noise/gaussian_noise/{i+1}', transform=test_transform)
+            
+            labels = list(range(self.num_classes))
+            val_indices = [idx for idx, target in enumerate(test_data_raw.targets) if target in labels]
+            test_data_raw = torch.utils.data.Subset(test_data_raw, val_indices)
+
+            self.test_set_list.append(test_data_raw)
+
+    def test_dataloader(self):
+        return {"noise" : [DataLoader(testset, batch_size=self.batchsize, shuffle=False, num_workers =self.num_workers) for testset in self.test_set_list]}
+
 
 class ImageClassifier(pl.LightningModule):
     def __init__(self, config, num_classes, input_ch):
@@ -101,6 +129,7 @@ class ImageClassifier(pl.LightningModule):
         self.num_classes = num_classes
         self.encoder = ModelWrapper(config, num_classes,input_ch)
         print(self.encoder)
+        self.test_step_error = [[],[],[],[],[]]
 
     def training_step(self, batch, batch_idx):
         # training_step defines the train loop.
@@ -181,23 +210,32 @@ class ImageClassifier(pl.LightningModule):
         acc = accuracy(preds, y, num_classes=self.num_classes, task="multiclass")
         self.log("Robust_acc", acc, prog_bar=True, sync_dist=True)
     
-    def evaluate(self, batch, stage=None):
+    def evaluate(self, batch, stage=None, dataloader_idx=None):
         x, y = batch
         logits = self.encoder(x)
         loss = nn.functional.cross_entropy(logits, y)
         preds = torch.argmax(logits, dim=1)
         acc = accuracy(preds, y, num_classes=self.num_classes, task="multiclass")
         
-        if stage:
+        if stage == "val":
             self.log(f"{stage}_loss", loss, prog_bar=True, sync_dist=True)
             self.log(f"{stage}_acc", acc, prog_bar=True, sync_dist=True)
             self.evaluateRobust(x, y)
 
+        if stage == "test":
+            self.log(f"{stage}_err", (1-acc)*100, prog_bar=True, sync_dist=True)
+            self.test_step_error[dataloader_idx].append((1-acc)*100)
+
+    def on_test_epoch_end(self):
+        alexnet_accuracy = {"noise" : {"gaussian" : 88.6}}
+        all_error = torch.tensor(self.test_step_error)
+        self.log("noise_mce",all_error.mean()*100/alexnet_accuracy["noise"]["gaussian"])
+
     def validation_step(self, batch, batch_idx):
         self.evaluate(batch, "val")
 
-    def test_step(self, batch, batch_idx):
-        self.evaluate(batch, "test")
+    def test_step(self, batch, batch_idx, dataloader_idx):
+        self.evaluate(batch, "test", dataloader_idx)
 
 class ModelWrapper(pl.LightningModule):
     def __init__(self, config, num_classes,input_ch):
@@ -213,7 +251,8 @@ class ModelWrapper(pl.LightningModule):
     def create_model(self, num_classes,input_ch):
         
         resnet_models = {
-            'resnet18' : resnet18,
+            'resnet18' : preactresnet.preactresnet18,
+            # 'resnet18' : resnet18,
             'resnet50' : resnet50
         }
 
