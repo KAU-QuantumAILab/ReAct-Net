@@ -36,9 +36,9 @@ def main(config, WANDBLOG):
     # torch.set_float32_matmul_precision('medium')
 
     lr_monitor = LearningRateMonitor(logging_interval='step')
-    checkpoint_callback = ModelCheckpoint(monitor="val_acc", mode="max")
+    checkpoint_callback = ModelCheckpoint(monitor="val_Error", mode="min")
 
-    trainer = pl.Trainer(max_epochs = config["epochs"],logger= wandb_logger if WANDBLOG else tb_logger, callbacks=[checkpoint_callback,lr_monitor],log_every_n_steps= 15 if config["batch_size"] >= 512 else 50)
+    trainer = pl.Trainer(max_epochs = config["epochs"],logger= wandb_logger if WANDBLOG else tb_logger, callbacks=[checkpoint_callback,lr_monitor],log_every_n_steps= 15 if config["batch_size"] >= 512 else 50, devices=[2,3])
     trainer.fit(modified_resnet_encoder, dataset)
 
 

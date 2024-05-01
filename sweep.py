@@ -14,7 +14,7 @@ import utils
 
 
 def main(config=None, WANDBLOG=None):
-    class_num = 100
+    class_num = 1000
     dataset = CustomDataModule(config['dataset'], class_num, config['batch_size'], config["num_workers"])
     modified_resnet_encoder = ImageClassifier(config, dataset.num_classes, dataset.input_ch)
     if(WANDBLOG):
@@ -25,9 +25,9 @@ def main(config=None, WANDBLOG=None):
         tb_logger = TensorBoardLogger(save_dir="logs/")
 
     lr_monitor = LearningRateMonitor(logging_interval='step')
-    checkpoint_callback = ModelCheckpoint(monitor="val_acc", mode="max", save_weights_only=True)
+    checkpoint_callback = ModelCheckpoint(monitor="val_Error", mode="min", save_weights_only=True)
 
-    trainer = pl.Trainer(max_epochs = config["epochs"],logger= wandb_logger if WANDBLOG else tb_logger, callbacks=[lr_monitor],log_every_n_steps= 15 if config["batch_size"] >= 512 else 50)
+    trainer = pl.Trainer(max_epochs = config["epochs"],logger= wandb_logger if WANDBLOG else tb_logger, callbacks=[lr_monitor],log_every_n_steps= 15 if config["batch_size"] >= 512 else 50, devices=[2,3])
     trainer.fit(modified_resnet_encoder, dataset)
     # trainer.test(model=modified_resnet_encoder,dataloaders=testloader)
 

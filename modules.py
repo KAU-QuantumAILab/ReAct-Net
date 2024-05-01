@@ -2,12 +2,11 @@
 import torch
 import lightning as L
 import lightning.pytorch as pl
-from torchvision.models import resnet18, resnet50
 from torch import optim, nn, Tensor
 from torch.utils.data import DataLoader, random_split
 from torch.optim.lr_scheduler import OneCycleLR
 import torchvision.transforms as transforms
-from torchvision.datasets import MNIST, CIFAR10, ImageNet, ImageFolder
+from torchvision.datasets import MNIST, CIFAR10, CIFAR100, ImageNet, ImageFolder
 from torchmetrics.functional import accuracy
 from racun import BatchRaCUN, BatchRaCUNWrapper
 import torchattacks
@@ -20,13 +19,22 @@ class CustomDataModule(L.LightningDataModule):
         self.dataset = dataset
         self.batchsize = batchsize
         self.num_workers = num_workers
-        self.num_classes = classes if dataset == 'ImageNet' else 10
+        if dataset == 'ImageNet' :
+            self.num_classes = classes
+        elif dataset == 'CIFAR100' :
+            self.num_classes = 100 
+        else:
+            self.num_classes = 10
+
         self.input_ch = 1 if dataset=='MNIST' else 3
 
     def prepare_data(self):
         if(self.dataset=="CIFAR10"):
             CIFAR10(root='~/data', train=True,download=True)
             CIFAR10(root='~/data', train=False,download=True)
+        elif(self.dataset=="CIFAR100"):
+            CIFAR100(root='~/data', train=True,download=True)
+            CIFAR100(root='~/data', train=False,download=True)
         elif(self.dataset=="MNIST"):
             MNIST(root='~/data', train=True, download=True)
             MNIST(root='~/data', train=False, download=True)
@@ -48,6 +56,23 @@ class CustomDataModule(L.LightningDataModule):
                 self.trainset = CIFAR10(root='~/data', train=True,
                                                         download=True, transform=train_transform)
                 self.testset = CIFAR10(root='~/data', train=False,
+                                                    download=True, transform=test_transform)
+        elif(self.dataset=="CIFAR100"):
+            train_transform = transforms.Compose(
+                [
+                transforms.RandomCrop(32, padding=4),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                ])
+            test_transform = transforms.Compose(
+                [
+                transforms.ToTensor(),
+                ])
+
+            if(stage == "fit"):
+                self.trainset = CIFAR100(root='~/data', train=True,
+                                                        download=True, transform=train_transform)
+                self.testset = CIFAR100(root='~/data', train=False,
                                                     download=True, transform=test_transform)
 
         elif(self.dataset=="MNIST"):
@@ -144,7 +169,7 @@ class ImageClassifier(pl.LightningModule):
             loss1 = utils.mixup_criterion(nn.functional.cross_entropy, benign_outputs, benign_targets_a, benign_targets_b, benign_lam)
 
 
-            advExample = self.generateAdv(x, y, self.config["adv_epsilon"])
+            advExample = self.generateAdv(x, y, "PGD", self.config["adv_epsilon"])
             adv_inputs, adv_targets_a, adv_targets_b, adv_lam = utils.mixup_data(advExample, y)
             advZ = self.encoder(adv_inputs)
             loss2 = utils.mixup_criterion(nn.functional.cross_entropy, advZ, adv_targets_a, adv_targets_b, adv_lam)
@@ -197,18 +222,33 @@ class ImageClassifier(pl.LightningModule):
         else:
             return {"optimizer": optimizer, "monitor": "val_acc"}
     
-    def generateAdv(self, x, y, eps = 0.0314, alpha=0.00784, steps=3):
+    def generateAdv(self, x, y, attackType, eps = 0.0314, alpha=0.00784, steps=7):
         with torch.enable_grad():
-            atk = torchattacks.PGD(self.encoder, eps=eps, alpha=alpha, steps=steps)
+            if attackType == "PGD":
+                atk = torchattacks.PGD(self.encoder, eps=eps, alpha=alpha, steps=steps)
+            elif attackType == "FGSM":
+                atk = torchattacks.FGSM(self.encoder, eps=eps)
             adv_images = atk(x, y)
         return adv_images
     
     def evaluateRobust(self, x, y):
-        adv_images = self.generateAdv(x, y, self.config["adv_epsilon"])
-        logits = self.encoder(adv_images)
+        pgd_images7 = self.generateAdv(x, y, "PGD", self.config["adv_epsilon"])
+        logits = self.encoder(pgd_images7)
         preds = torch.argmax(logits, dim=1)
         acc = accuracy(preds, y, num_classes=self.num_classes, task="multiclass")
-        self.log("Robust_acc", acc, prog_bar=True, sync_dist=True)
+        self.log("PGD7_Error", 1-acc, prog_bar=True, sync_dist=True)
+
+        pgd20_images = self.generateAdv(x, y, "PGD", self.config["adv_epsilon"], steps=20)
+        logits = self.encoder(pgd20_images)
+        preds = torch.argmax(logits, dim=1)
+        acc = accuracy(preds, y, num_classes=self.num_classes, task="multiclass")
+        self.log("PGD20_Error", 1-acc, prog_bar=True, sync_dist=True)
+
+        fgsm_images = self.generateAdv(x, y, "FGSM", self.config["adv_epsilon"])
+        logits = self.encoder(fgsm_images)
+        preds = torch.argmax(logits, dim=1)
+        acc = accuracy(preds, y, num_classes=self.num_classes, task="multiclass")
+        self.log("FGSM_Error", 1-acc, prog_bar=True, sync_dist=True)
     
     def evaluate(self, batch, stage=None, dataloader_idx=None):
         x, y = batch
@@ -219,11 +259,11 @@ class ImageClassifier(pl.LightningModule):
         
         if stage == "val":
             self.log(f"{stage}_loss", loss, prog_bar=True, sync_dist=True)
-            self.log(f"{stage}_acc", acc, prog_bar=True, sync_dist=True)
+            self.log(f"{stage}_Error", 1-acc, prog_bar=True, sync_dist=True)
             self.evaluateRobust(x, y)
 
         if stage == "test":
-            self.log(f"{stage}_err", (1-acc)*100, prog_bar=True, sync_dist=True)
+            self.log(f"{stage}_Error", (1-acc), prog_bar=True, sync_dist=True)
             self.test_step_error[dataloader_idx].append((1-acc)*100)
 
     def on_test_epoch_end(self):
@@ -252,8 +292,6 @@ class ModelWrapper(pl.LightningModule):
         
         resnet_models = {
             'resnet18' : preactresnet.preactresnet18,
-            # 'resnet18' : resnet18,
-            'resnet50' : resnet50
         }
 
         racunWrapper = BatchRaCUNWrapper(self.config["batch_racun_scale"])
