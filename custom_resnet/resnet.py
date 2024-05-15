@@ -89,10 +89,15 @@ class BasicBlock(nn.Module):
         self.stride = stride
         self.bottleneckLayer = nn.ReLU(inplace=True)
 
-    def configure_react(self, ReActLayer, replaceAll=False):
-        self.bottleneckLayer = ReActLayer()
-        if(replaceAll):
-            self.activation = ReActLayer()
+    def configure_react(self, ReActLayer, replaceAll=False, **kwargs):
+        if kwargs.get('alpha'):
+            self.bottleneckLayer = ReActLayer(alpha=kwargs.get('alpha'))
+            if(replaceAll):
+                self.activation = ReActLayer(alpha=kwargs.get('alpha'))
+        else:
+            self.bottleneckLayer = ReActLayer()
+            if(replaceAll):
+                self.activation = ReActLayer()
 
     def forward(self, x: Tensor) -> Tensor:
         identity = x
@@ -152,11 +157,18 @@ class Bottleneck(nn.Module):
         self.stride = stride
         self.bottleneckLayer = nn.ReLU(inplace=True)
 
-    def configure_react(self, ReActLayer, replaceAll = False):
-        self.bottleneckLayer = ReActLayer()
-        if(replaceAll):
-            self.activation1 = ReActLayer()
-            self.activation2 = ReActLayer()
+
+    def configure_react(self, ReActLayer, replaceAll = False, **kwargs):
+        if kwargs.get('alpha'):
+            self.bottleneckLayer = ReActLayer(alpha=kwargs.get('alpha'))
+            if(replaceAll):
+                self.activation1 = ReActLayer(alpha=kwargs.get('alpha'))
+                self.activation2 = ReActLayer(alpha=kwargs.get('alpha'))
+        else:
+            self.bottleneckLayer = ReActLayer()
+            if(replaceAll):
+                self.activation1 = ReActLayer()
+                self.activation2 = ReActLayer()
 
     def forward(self, x: Tensor) -> Tensor:
         identity = x

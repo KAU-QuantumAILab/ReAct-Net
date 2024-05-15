@@ -1,7 +1,7 @@
 import os
 from torch import optim, nn, utils, Tensor
 import torch
-from torchvision.datasets import MNIST, CIFAR10, ImageNet, ImageFolder
+from torchvision.datasets import MNIST, CIFAR10, ImageFolder
 from torchvision.transforms import ToTensor
 import torchvision.transforms as transforms
 # from torchvision import models
@@ -21,7 +21,7 @@ import random
 import torchattacks
 import yaml
 import numpy as np
-from torch.nn import GELU
+from torch.nn import GELU, SiLU, ELU, LeakyReLU, PReLU
 
 
 ##################################################################################
@@ -32,9 +32,9 @@ parser = argparse.ArgumentParser(
 
 parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
 # parser.add_argument('--project_name', default="Brelu", help='wandb project name')
-# parser.add_argument('--project_name', default="Brelu_ImageNet100", help='wandb project name')
+parser.add_argument('--project_name', default="Brelu_noAdv", help='wandb project name')
 # parser.add_argument('--project_name', default="early_Stop_test", help='wandb project name')
-parser.add_argument('--project_name', default="Brelu_CIFAR-10", help='wandb project name')
+# parser.add_argument('--project_name', default="Brelu_CIFAR-10", help='wandb project name')
 parser.add_argument('--entity', default='kau-quantum', help='wandb entity name')
 parser.add_argument('--devices', default=0, type=int, help='choose the CUDA(ex: 0, 1, 2, -1)')
 
@@ -121,10 +121,17 @@ class ModelWrapper(pl.LightningModule):
 
 
         activation_functions = {
+            'gelu' : GELU,
+            'silu' : SiLU,
+            'elu' : ELU,
+            'LReLU' : LeakyReLU,
+            'PReLU' : PReLU,
             'sampling' : SamplingLayer,
             'brelu' : BReLU,
             'Vbrelu' : VariableBReLU,
+            'leakyVbrelu' : LeakyVariableBReLU,
             'leaky' : Leaky_BReLU,
+            'pbrelu' : PBReLU,
             'SSCA' : SSCA,
             'SARB' : SARB,
             'SARBSC' : SARBSC,
@@ -137,7 +144,6 @@ class ModelWrapper(pl.LightningModule):
             'MActSC' : MeasureActSC,
             'SMAct' : SomeMeasureAct,
             'SMActSC' : SomeMeasureActSC,
-            'gelu' : GELU,
             'TernaryOut' : TernaryOut,
             'TernaryOutSC' : TernaryOutSC,
             'SomeTernaryOut' : SomeTernaryOut,
@@ -151,11 +157,11 @@ class ModelWrapper(pl.LightningModule):
         if activation == 'relu':
             pass
         
-        elif activation == 'Vbrelu':
+        elif activation == 'Vbrelu' or activation == 'leakyVbrelu':
             for name,child in model.named_children():
                 if(isinstance(child, nn.Sequential)):
                     for sub_name, sub_child in child.named_children():
-                        sub_child.configure_react(VariableBReLU, replaceAll=self.config.get('replaceAll'), alpha=self.config.get('alpha'))
+                        sub_child.configure_react(activation_functions[self.config['activation']], replaceAll=self.config.get('replaceAll'), alpha=self.config.get('alpha'))
         
         else:
             for name,child in model.named_children():
@@ -229,7 +235,8 @@ class LitAutoEncoder(pl.LightningModule):
             )
         
         if(self.config["lr_scheduler"]):
-            momentum = self.config.get('momentum') if self.config['optimizer'] == "SGD" else self.config.get('beta1')
+            # momentum = self.config.get('momentum') if self.config['optimizer'] == "SGD" else self.config.get('beta1')
+            momentum = self.config.get('momentum') if self.config['optimizer'] == "SGD" else 0.85
             steps_per_epoch = self.config["dataloader_len"]
             scheduler_dict = {
                 "scheduler": OneCycleLR(
@@ -425,7 +432,7 @@ def train_model():
                                             filename=file_name + '{val_acc:.4f}')
         callbacks.append(checkpoint_callback)
         
-        # early_stop = EarlyStopping('val_acc', mode='max', patience=8)
+        # early_stop = EarlyStopping('val_acc', mode='max', patience=6)
         # callbacks.append(early_stop)
     else:
         checkpoint_callback = ModelCheckpoint(monitor="Robust_acc", mode="max",
@@ -433,7 +440,7 @@ def train_model():
                                             filename=file_name + '{Robust_acc:.4f}')
         callbacks.append(checkpoint_callback)
         
-        # early_stop = EarlyStopping('Robust_acc', mode='max', patience=8)
+        # early_stop = EarlyStopping('Robust_acc', mode='max', patience=6)
         # callbacks.append(early_stop)
     
     
