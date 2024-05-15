@@ -3,6 +3,7 @@ import lightning.pytorch as pl
 from torch.autograd import Variable
 from torch import nn
 import torch.nn.functional as F
+from torch.nn.parameter import Parameter
 
 class SamplingLayer(pl.LightningModule):
     def __init__(self, hidden_feature=None):
@@ -86,7 +87,36 @@ class VariableBReLU(pl.LightningModule):
     
     def extra_repr(self) -> str:
         return 'alpha={}'.format(self.alpha)
+
+class LeakyVariableBReLU(pl.LightningModule):
+    def __init__(self, alpha=1):
+        super(LeakyVariableBReLU, self).__init__()
+        self.alpha = alpha
+        
+    def forward(self, x):
+        epsilon = torch.distributions.bernoulli.Bernoulli(logits=self.alpha * x).sample()
+        epsilon = torch.where(epsilon==0, 0.1, 1.0)
+        return x * epsilon.to(self.device)
     
+    def extra_repr(self) -> str:
+        return 'alpha={}'.format(self.alpha)
+
+
+class PBReLU(pl.LightningModule):
+    def __init__(self, init: float = 0.25, device=None, dtype=None):
+        factory_kwargs = {'device': device, 'dtype': dtype}
+        super(PBReLU, self).__init__()
+        self.init = init
+        self.weight = Parameter(torch.empty(1, **factory_kwargs))
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        torch.nn.init.constant_(self.weight, self.init)
+
+    def forward(self, x):
+        epsilon = torch.distributions.bernoulli.Bernoulli(logits=x).sample()
+        return (x * epsilon) + (self.weight * x * (1-epsilon))
+
 
 class BReLU(pl.LightningModule):
     def __init__(self):
