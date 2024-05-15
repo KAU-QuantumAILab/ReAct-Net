@@ -157,7 +157,6 @@ class Bottleneck(nn.Module):
         self.stride = stride
         self.bottleneckLayer = nn.ReLU(inplace=True)
 
-
     def configure_react(self, ReActLayer, replaceAll = False, **kwargs):
         if kwargs.get('alpha'):
             self.bottleneckLayer = ReActLayer(alpha=kwargs.get('alpha'))
@@ -169,6 +168,7 @@ class Bottleneck(nn.Module):
             if(replaceAll):
                 self.activation1 = ReActLayer()
                 self.activation2 = ReActLayer()
+                
 
     def forward(self, x: Tensor) -> Tensor:
         identity = x

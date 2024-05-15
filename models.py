@@ -421,8 +421,6 @@ class TernaryOut(pl.LightningModule):
         super(TernaryOut, self).__init__()
         
     def forward(self, x):
-        print('\n\n')
-        print(f"x.device : {x.device}")
         b = torch.distributions.bernoulli.Bernoulli(logits=x)
         b1 = b.sample()
         b2 = b.sample()
@@ -476,7 +474,7 @@ class SomeTernaryOut(pl.LightningModule):
         b1 = b.sample()
         b2 = b.sample()
         
-        epsilon = (torch.logical_xor(b1, b2, out=torch.empty(b1.shape, dtype=x.dtype, device=x.device)) * (1/(x+1e-16)) * (torch.ones_like(b1) - (2*b1) + torch.logical_and(b1, b2))) + torch.logical_and(b1, b2)
+        epsilon = (torch.logical_xor(b1, b2, out=torch.empty(b1.shape, dtype=x.dtype, device=x.device)) * (1/(x+1e-8)) * (torch.ones_like(b1) - (2*b1))) + torch.logical_and(b1, b2)
         
         return x * epsilon
 
@@ -502,7 +500,7 @@ class SomeTernaryOutSC(pl.LightningModule):
         b1 = b.sample()
         b2 = b.sample()
         
-        epsilon = (torch.logical_xor(b1, b2, out=torch.empty(b1.shape, dtype=x.dtype, device=x.device)) * (1/(x+1e-16)) * (torch.ones_like(b1) - (2*b1) + torch.logical_and(b1, b2))) + torch.logical_and(b1, b2)
+        epsilon = (torch.logical_xor(b1, b2, out=torch.empty(b1.shape, dtype=x.dtype, device=x.device)) * (1/(x+1e-8)) * (torch.ones_like(b1) - (2*b1))) + torch.logical_and(b1, b2)
         
         return x * epsilon
 
