@@ -100,6 +100,54 @@ class LeakyVariableBReLU(pl.LightningModule):
     
     def extra_repr(self) -> str:
         return 'alpha={}'.format(self.alpha)
+    
+
+class PVariableBReLU(pl.LightningModule):
+    def __init__(self, alpha=1, init = 0.25, device=None, dtype=None):
+        factory_kwargs = {'device': device, 'dtype': dtype}
+        super(PVariableBReLU, self).__init__()
+        self.alpha = alpha
+        self.init = init
+        self.weight = Parameter(torch.empty(1, **factory_kwargs))
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        torch.nn.init.constant_(self.weight, self.init)
+        
+    def forward(self, x):
+        epsilon = torch.distributions.bernoulli.Bernoulli(logits=self.alpha * x).sample()
+        return (x * epsilon) + (self.weight * x * (1-epsilon))
+    
+    def extra_repr(self) -> str:
+        return 'alpha={}'.format(self.alpha)
+
+
+class BELU(pl.LightningModule):
+    def __init__(self, neg_coef: float = 1.):
+        super(BELU, self).__init__()
+        self.neg_coef = neg_coef
+
+    def forward(self, x):
+        epsilon = torch.distributions.bernoulli.Bernoulli(logits=x).sample()
+        return (x * epsilon) + (self.neg_coef * ((torch.exp(x) - 1) * (1-epsilon)))
+
+    def extra_repr(self) -> str:
+        return f'neg_coef={self.neg_coef}'
+    
+
+class VariableBELU(pl.LightningModule):
+    def __init__(self, alpha: float = 1., neg_coef: float = 1.):
+        super(VariableBELU, self).__init__()
+        self.alpha = alpha
+        self.neg_coef = neg_coef
+
+    def forward(self, x):
+        epsilon = torch.distributions.bernoulli.Bernoulli(logits=self.alpha * x).sample()
+        return (x * epsilon) + (self.alpha * ((torch.exp(x) - 1) * (1-epsilon)))
+
+    def extra_repr(self) -> str:
+        return f'neg_coef={self.neg_coef}'
+
 
 
 class PBReLU(pl.LightningModule):

@@ -130,8 +130,11 @@ class ModelWrapper(pl.LightningModule):
             'brelu' : BReLU,
             'Vbrelu' : VariableBReLU,
             'leakyVbrelu' : LeakyVariableBReLU,
+            'PVbrelu' : PVariableBReLU,
             'leaky' : Leaky_BReLU,
             'pbrelu' : PBReLU,
+            'belu' : BELU,
+            'vbelu' : VariableBELU,
             'SSCA' : SSCA,
             'SARB' : SARB,
             'SARBSC' : SARBSC,
@@ -147,7 +150,7 @@ class ModelWrapper(pl.LightningModule):
             'TernaryOut' : TernaryOut,
             'TernaryOutSC' : TernaryOutSC,
             'SomeTernaryOut' : SomeTernaryOut,
-            'SomeTernaryOutSC' : TernaryOutSC,
+            'SomeTernaryOutSC' : SomeTernaryOutSC,
             'TernaryMul' : TernaryMul,
             'TernaryMulSC' : TernaryMulSC,
             'TernaryMulSym' : TernaryMulSym,
@@ -157,7 +160,7 @@ class ModelWrapper(pl.LightningModule):
         if activation == 'relu':
             pass
         
-        elif activation == 'Vbrelu' or activation == 'leakyVbrelu':
+        elif activation == 'Vbrelu' or activation == 'leakyVbrelu' or activation == 'PVbrelu' or activation == 'vbelu':
             for name,child in model.named_children():
                 if(isinstance(child, nn.Sequential)):
                     for sub_name, sub_child in child.named_children():
@@ -432,7 +435,7 @@ def train_model():
                                             filename=file_name + '{val_acc:.4f}')
         callbacks.append(checkpoint_callback)
         
-        # early_stop = EarlyStopping('val_acc', mode='max', patience=6)
+        # early_stop = EarlyStopping('val_acc', mode='max', patience=8)
         # callbacks.append(early_stop)
     else:
         checkpoint_callback = ModelCheckpoint(monitor="Robust_acc", mode="max",
@@ -440,7 +443,7 @@ def train_model():
                                             filename=file_name + '{Robust_acc:.4f}')
         callbacks.append(checkpoint_callback)
         
-        # early_stop = EarlyStopping('Robust_acc', mode='max', patience=6)
+        # early_stop = EarlyStopping('Robust_acc', mode='max', patience=8)
         # callbacks.append(early_stop)
     
     
