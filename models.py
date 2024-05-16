@@ -122,28 +122,38 @@ class PVariableBReLU(pl.LightningModule):
         return 'alpha={}'.format(self.alpha)
 
 
+# ELU exp error
 class BELU(pl.LightningModule):
-    def __init__(self, neg_coef: float = 1.):
+    def __init__(self, neg_coef=1):
         super(BELU, self).__init__()
         self.neg_coef = neg_coef
 
     def forward(self, x):
+        if torch.isnan(x).any():
+            raise ValueError("Logits tensor contains NaN")
         epsilon = torch.distributions.bernoulli.Bernoulli(logits=x).sample()
-        return (x * epsilon) + (self.neg_coef * ((torch.exp(x) - 1) * (1-epsilon)))
+        ones = (x * epsilon)
+        zeros = (self.neg_coef * ((torch.exp(x * (1-epsilon)) - 1)))
+        # print(f'ones = {ones.sum()}')
+        # print(f'zeros = {zeros.sum()}')
+        out = ones + zeros
+        if torch.isnan(out).any():
+            raise ValueError("Logits tensor contains NaN")
+        return out
 
     def extra_repr(self) -> str:
         return f'neg_coef={self.neg_coef}'
     
 
 class VariableBELU(pl.LightningModule):
-    def __init__(self, alpha: float = 1., neg_coef: float = 1.):
+    def __init__(self, alpha=1, neg_coef=1):
         super(VariableBELU, self).__init__()
         self.alpha = alpha
         self.neg_coef = neg_coef
 
     def forward(self, x):
         epsilon = torch.distributions.bernoulli.Bernoulli(logits=self.alpha * x).sample()
-        return (x * epsilon) + (self.alpha * ((torch.exp(x) - 1) * (1-epsilon)))
+        return (x * epsilon) + (self.neg_coef * ((torch.exp(x  * (1-epsilon)) - 1)))
 
     def extra_repr(self) -> str:
         return f'neg_coef={self.neg_coef}'
