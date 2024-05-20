@@ -18,47 +18,11 @@ import os
 import argparse
 import random
 # from lightning.pytorch.accelerators import find_usable_cuda_devices
-import torchattacks
+from torchattacks import FGSM, PGD
 import yaml
 import numpy as np
 from torch.nn import GELU, SiLU, ELU, LeakyReLU, PReLU
 
-
-##################################################################################
-
-
-parser = argparse.ArgumentParser(
-    description='reAct sweep with yaml \n usage: nl_sweep_yaml.py --yaml [yaml_path] --devices 0 --project_name [pname] -- entity [ename]\n')
-
-parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
-# parser.add_argument('--project_name', default="Brelu", help='wandb project name')
-parser.add_argument('--project_name', default="Brelu_noAdv", help='wandb project name')
-# parser.add_argument('--project_name', default="early_Stop_test", help='wandb project name')
-# parser.add_argument('--project_name', default="Brelu_CIFAR-10", help='wandb project name')
-parser.add_argument('--entity', default='kau-quantum', help='wandb entity name')
-parser.add_argument('--devices', default=0, type=int, help='choose the CUDA(ex: 0, 1, 2, -1)')
-
-args = parser.parse_args()
-
-torch.set_float32_matmul_precision('high')
-
-global project_name, sweep_config, device_num
-
-project_name = args.project_name        # wandb project name
-entity = args.entity
-device_num = [args.devices]
-
-ypath = args.yaml
-
-with open(ypath) as file:
-    sweep_config = yaml.load(file, Loader=yaml.FullLoader)
-
-
-# dataset = "CIFAR10"                     # CIFAR10 / ImageNet
-# project_name = "reAct_sweep_ImageNet"            # wandb project name
-# dataset = "ImageNet"
-
-###################################################################################
 
 def seed_everything(seed:int = 1004):
     random.seed(seed)
@@ -70,9 +34,6 @@ def seed_everything(seed:int = 1004):
     torch.backends.cudnn.deterministic = True  # type: ignore
     torch.backends.cudnn.benchmark = False  # True로 하면 gpu에 적합한 알고리즘을 선택함.
 
-
-
-###################################################################################
 
 resnet_models = {
     'resnet18' : resnet.resnet18,
@@ -263,15 +224,20 @@ class LitAutoEncoder(pl.LightningModule):
             return {"optimizer": optimizer, "monitor": "val_acc"}
     
 
-    def generateAdv(self, x, y, eps = 0.0314, alpha=0.00784, steps=3):
+    def generateAdv(self, x, y, atkType = 'PGD', eps = 0.0314, alpha=0.00784, steps=3):
         with torch.enable_grad():
-            atk = torchattacks.PGD(self.encoder, eps=eps, alpha=alpha, steps=steps)
+            if atkType == 'PGD':
+                atk = PGD(self.encoder, eps=eps, alpha=alpha, steps=steps)
+            elif atkType == 'FGSM':
+                atk = FGSM(self.encoder, eps=eps)
             adv_images = atk(x, y)
         return adv_images
 
 
     def evaluateRobust(self, x, y):
-        adv_images = self.generateAdv(x, y, self.config['eps'])
+        atkType = self.config.get('atk') if self.config.get('atk') is not None else 'PGD'
+        atk_step = self.config.get('steps') if self.config.get('steps') is not None else 3
+        adv_images = self.generateAdv(x=x, y=y, atkType=atkType, eps = self.config['eps'], steps=atk_step)
         logits = self.encoder(adv_images)
         preds = torch.argmax(logits, dim=1)
         acc = accuracy(preds, y, num_classes=self.config["num_classes"], task="multiclass")
@@ -393,79 +359,6 @@ def choose_dataset(config):
 
 
 
-def train_model():
-    run = wandb.init(project=project_name, entity=entity)
-    config = wandb.config
-    seed = config.get('seed')
-    seed = seed if seed is not None else 42
-    print(f"Seed is {seed}")
-    seed_everything(seed)
-    wandb.define_metric("val_acc", summary="max")
-    wandb.define_metric("Robust_acc", summary="max")
-    # name_postfix = "reference" if config['activation'] == 'relu' else "ReAct"
-    rpa = ' All' if config.get('replaceAll') else ''
-    name_postfix = config['activation'] + rpa + '-' + config['optimizer']
-    adver = "-adv" + 'eps:' + str(config.get('eps')) if config.get('adv') else ''
-    
-    # name = config["dataset"] + "-" + config["architecture"] + "-" + name_postfix + "-" + config.optimizer + " lr:" + str(round(config.lr, 4)) + adver
-    name = config["dataset"] + "-" + config["architecture"] + "-" + name_postfix + adver
-    run.name = name
-    # wandb_logger = WandbLogger(config=config, save_code=False, log_model="all")
-    wandb_logger = WandbLogger(config=config, save_code=False)    # no checkpoint save
-
-    data = choose_dataset(config=config)
-
-
-    config.dataloader_len = len(data[0])
-
-    modified_resnet_encoder = LitAutoEncoder(config)
-
-    wandb_logger.watch(modified_resnet_encoder, log="all")
-
-    # file_name = config['activation'] + str(round(config.get('alpha'), 3))
-    # file_name = config['activation'] + '-' + config['dataset'] + '-'
-    variable_act = ["Vbrelu", "leakyVbrelu", "PVbrelu"]
-    alpha = f"_a={config.get('alpha')}" if config['activation'] in variable_act else ''
-
-    file_name = f"{config['activation']}{alpha}{'_ALL' if config.get('replaceAll') else ''}_{config['dataset']}_{config['optimizer']}_"
-    
-    callbacks = []
-    lr_monitor = LearningRateMonitor(logging_interval='step')
-    callbacks.append(lr_monitor)
-    
-    if config.get('adv') == False:
-        checkpoint_callback = ModelCheckpoint(monitor="val_acc", mode="max",
-                                            dirpath=f"./ckpt/{config['dataset']}/{config['activation']}",
-                                            filename=file_name + '{epoch}_{val_acc:.4f}')
-        callbacks.append(checkpoint_callback)
-        
-        # early_stop = EarlyStopping('val_acc', mode='max', patience=8)
-        # callbacks.append(early_stop)
-    else:
-        checkpoint_callback = ModelCheckpoint(monitor="Robust_acc", mode="max",
-                                            dirpath=f"./ckpt/{config['dataset']}/{config['activation']}",
-                                            filename=file_name + '{epoch}_{Robust_acc:.4f}')
-        callbacks.append(checkpoint_callback)
-        
-        # early_stop = EarlyStopping('Robust_acc', mode='max', patience=8)
-        # callbacks.append(early_stop)
-    
-    
-    
-    # trainer = pl.Trainer(max_epochs = config["epochs"],logger= wandb_logger, callbacks=[checkpoint_callback,lr_monitor], devices = find_usable_cuda_devices(1))
-    trainer = pl.Trainer(accelerator = 'gpu', max_epochs = config["epochs"],logger= wandb_logger, callbacks=callbacks, devices = device_num)
-    # trainer = pl.Trainer(max_epochs = config["epochs"],logger= wandb_logger, callbacks=[lr_monitor], devices = device_num)
-    trainer.fit(model=modified_resnet_encoder, train_dataloaders=data[0], val_dataloaders=data[1])
-    torch.cuda.empty_cache()
-    # wandb.finish()
-
-
-
-def main():
-    resume = sweep_config.get('sweep_id')
-    sweep_id = resume if resume else wandb.sweep(sweep_config, project=project_name)
-    # sweep_id = "gt3qp3cj"
-    wandb.agent(sweep_id=sweep_id, function=train_model, project=project_name, entity=entity)
-
-
-main()
+def load_model(ckpt, config):
+    model = LitAutoEncoder.load_from_checkpoint(ckpt, config=config)
+    return model
