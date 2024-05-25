@@ -22,6 +22,7 @@ from torchattacks import FGSM, PGD
 import yaml
 import numpy as np
 from torch.nn import GELU, SiLU, ELU, LeakyReLU, PReLU
+from torch.utils.data import Dataset
 
 
 def seed_everything(seed:int = 1004):
@@ -362,3 +363,93 @@ def choose_dataset(config):
 def load_model(ckpt, config):
     model = LitAutoEncoder.load_from_checkpoint(ckpt, config=config)
     return model
+
+
+from PIL.Image import Image
+
+class TransformSubset(Dataset):
+    def __init__(self, subset):
+        self.subset = subset
+        self.transform = randintchange()
+        
+        img = subset[0][0]
+        if not isinstance(img, Image):
+            size = img.shape[-1]
+        
+        else:
+            size = img.size[-1]
+        
+        self.record = {}
+        for i in range(len(self.subset)):
+            self.record[i] = dict(
+                cor = tuple(torch.randint(0, size, (2, ))),
+                rgb = tuple(torch.randint(0, 256, (3, )))
+                # rgb = (255, 255, 255)
+            )
+        
+    def __getitem__(self, index):
+        x, y = self.subset[index]
+        if self.transform:
+            x = self.transform(x, self.record[index])
+        return x, y
+        
+    def __len__(self):
+        return len(self.subset)
+    
+
+class randintchange(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.topil = transforms.ToPILImage()
+        self.totensor = transforms.ToTensor()
+        
+    def forward(self, img, task):
+        if not isinstance(img, Image):
+            img = self.topil(img)
+        
+
+        cor = task['cor']
+        rgb = task['rgb']
+        
+        img.putpixel(cor, rgb)
+        
+        return self.totensor(img)
+    
+
+from torch.utils.data import Dataset, DataLoader
+from torchvision.transforms import ToPILImage
+import matplotlib.pyplot as plt
+
+def ltol(loader):
+    dataset = loader.dataset
+    transformed_dataset = TransformSubset(dataset)
+    return DataLoader(transformed_dataset, batch_size=1, shuffle=False, num_workers=1)
+
+
+def test():
+    data_config = {
+        "dataset" : "CIFAR10",
+        "batch_size" : 1,
+        "num_workers" : 1
+    }
+
+    _, valloader = choose_dataset(data_config)
+    
+    
+    im = ToPILImage()
+
+    imgs = []
+
+    for i in range(0, 5):
+        sample = next(iter(valloader))[0][0]
+        imgs.append(im(sample))
+        print(f"{i} attack image append")
+        valloader = ltol(valloader)
+
+        print(f"{i}th loop end\n")
+        
+        
+    for img in imgs:
+        plt.imshow(img)
+        plt.axis('off')  # 축 제거 (선택 사항)
+        plt.show()
