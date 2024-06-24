@@ -1,56 +1,122 @@
-from modules import load_model, choose_dataset, seed_everything
+from modules import load_model, choose_dataset, seed_everything, onePixelAttack
 import lightning.pytorch as pl
 import torch
 import pandas as pd
+import wandb
 
 
 torch.set_float32_matmul_precision('high')
 seed_everything(42)
 
-# key iteration -> make config from act_name
-def fgsm_test(name, ckpt, replace, alpha):
+def make_config(**kwargs):
+    act = kwargs.get('act')
+    replaceAll = kwargs.get('replaceALL')
+    alpha = kwargs.get('alpha')
+    adv = kwargs.get('adv')
+    atk_type = kwargs.get('atk_type')
+    steps = kwargs.get('steps')
+    eps = kwargs.get('eps')
+    opt = kwargs.get('opt')
     cfg = {
     'architecture' : 'resnet18',
-    'activation' : name,
-    'replaceAll' : replace, 
+    'optimizer' : opt,
+    'activation' : act,
+    'replaceAll' : replaceAll, 
     'dataset' : 'CIFAR10',
-    'batch_size' : 256,
-    'num_workers' : 24,
-    'adv' : True,
-    'eps' : 0.0314,
+    'batch_size' : 128,
+    'num_workers' : 8,
+    'adv' : adv,
+    'eps' : eps,
     'alpha' : alpha,
-    'atk' : 'FGSM',
-    }
-    model = load_model(ckpt=ckpt, config=cfg)
-    _, valloader = choose_dataset(config=config)
-    trainer = pl.Trainer(inference_mode=False)
-    result = trainer.validate(model, valloader)
-    return result[0]
-
-
-def pgd_test(name, ckpt, replace, alpha, steps = 3):
-    cfg = {
-    'architecture' : 'resnet18',
-    'activation' : name,
-    'replaceAll' : replace, 
-    'dataset' : 'CIFAR10',
-    'batch_size' : 256,
-    'num_workers' : 24,
-    'adv' : True,
-    'eps' : 0.0314,
-    'alpha' : alpha,
-    'atk' : 'PGD',
+    'atk' : atk_type,
     'steps' : steps
     }
+    return cfg
 
+# key iteration -> make config from act_name
+def fgsm_test(name, opt, ckpt, replace, alpha):
+    cfg = make_config(act=name, opt = opt, replaceALL=replace, alpha=alpha, adv=True, atk_type='FGSM', eps=0.0314)
+    # cfg = {
+    # 'architecture' : 'resnet18',
+    # 'activation' : name,
+    # 'replaceAll' : replace, 
+    # 'dataset' : 'CIFAR10',
+    # 'batch_size' : 256,
+    # 'num_workers' : 24,
+    # 'adv' : True,
+    # 'eps' : 0.0314,
+    # 'alpha' : alpha,
+    # 'atk' : 'FGSM',
+    # }
     model = load_model(ckpt=ckpt, config=cfg)
-    _, valloader = choose_dataset(config=config)
+    _, valloader = choose_dataset(config=cfg)
     trainer = pl.Trainer(inference_mode=False)
     result = trainer.validate(model, valloader)
     return result[0]
 
 
-def all_test(fgsm = True, pgd_step = 3, file_name = "attak_test.csv"):
+def pgd_test(name, opt, ckpt, replace, alpha, steps = 3):
+    cfg = make_config(act=name, opt=opt, replaceALL=replace, alpha=alpha, adv=True, atk_type='PGD', steps=steps, eps=0.0314)
+    # cfg = {
+    # 'architecture' : 'resnet18',
+    # 'activation' : name,
+    # 'replaceAll' : replace, 
+    # 'dataset' : 'CIFAR10',
+    # 'batch_size' : 256,
+    # 'num_workers' : 24,
+    # 'adv' : True,
+    # 'eps' : 0.0314,
+    # 'alpha' : alpha,
+    # 'atk' : 'PGD',
+    # 'steps' : steps
+    # }
+
+    model = load_model(ckpt=ckpt, config=cfg)
+    _, valloader = choose_dataset(config=cfg)
+    trainer = pl.Trainer(inference_mode=False)
+    result = trainer.validate(model, valloader)
+    return result[0]
+
+
+def randomIntAttackTest(act, opt, ckpt, replace, alpha, temp_dict, steps = 30):
+    # load model -> evaluate -> record -> attack -> evaluate (repeat)
+    cfg = make_config(act=act, opt=opt, replaceALL=replace, alpha=alpha, adv=False, atk_type='RIA')
+    model = load_model(ckpt=ckpt, config=cfg)
+    print(f"\n Act:{act}, alpha={alpha}, opt:{opt}, , replaceALL:{replace}\n")
+    trainer = pl.Trainer()
+    _, valloader = choose_dataset(cfg)
+    for i in range(0, steps + 1):
+        print(f"\n{i} Dots Attack, \t model : Act:{act}, alpha={alpha}, opt:{opt}, , replaceALL:{replace}")
+        col_name = f"RIA_{i}"
+        result = trainer.validate(model=model, dataloaders=valloader)[0]
+        temp_dict[col_name] = result['val_acc']
+        if result['val_acc'] == 0: break
+        valloader = onePixelAttack(valloader)
+    
+    return temp_dict
+
+
+def randomIntAttackTestWandb(act, opt, ckpt, replace, alpha, temp_dict, steps = 30):
+    # load model -> evaluate -> record -> attack -> evaluate (repeat)
+    cfg = make_config(act=act, opt=opt, replaceALL=replace, alpha=alpha, adv=False, atk_type='RIA')
+    model = load_model(ckpt=ckpt, config=cfg)
+    print(f"\n Act:{act}, alpha={alpha}, opt:{opt}, , replaceALL:{replace}\n")
+    trainer = pl.Trainer()
+    _, valloader = choose_dataset(cfg)
+    for i in range(0, steps + 1):
+        print(f"\n{i} Dots Attack, \t model : Act:{act}, alpha={alpha}, opt:{opt}, , replaceALL:{replace}")
+        col_name = f"RIA_{i}"
+        result = trainer.validate(model=model, dataloaders=valloader)[0]
+        # temp_dict[col_name] = result['val_acc']
+        wandb.log({"RIA_acc" : result['val_acc'],
+                   "RIA_loss": result['val_loss']})
+        if result['val_acc'] == 0: break
+        valloader = onePixelAttack(valloader)
+    
+    return temp_dict
+
+
+def all_test(fgsm = True, pgd = True, pgd_step = 3, ria=True, ria_step = 30, file_name = "attak_test.csv"):
     optim = ['SGD', 'Adam', 'AdamW']
     variable = ['Vbrelu', 'leakyVbrelu', 'PVbrelu']
     replace = [(ckpt_path, False), (all_ckpt_path, True)]
@@ -67,17 +133,25 @@ def all_test(fgsm = True, pgd_step = 3, file_name = "attak_test.csv"):
                     checkpoint = ckpt_dict[opt]
 
                     if fgsm:
-                        fgsm_result = fgsm_test(act_name, checkpoint, replaceALL, None)
+                        fgsm_result = fgsm_test(name=act_name, opt=opt, ckpt=checkpoint, replace=replaceALL, alpha=None)
                         temp_dict['pure_acc'] = fgsm_result['val_acc']
                         temp_dict['FGSM'] = fgsm_result['Robust_acc']
 
-                    if pgd_step != 0:
+                    if pgd:
                         for i in pgd_steps:
                             col_name = f"PGD {i}"
-                            pgd_result = pgd_test(act_name, checkpoint, replaceALL, None, i)
+                            pgd_result = pgd_test(name=act_name, opt=opt, ckpt=checkpoint, replace=replaceALL, alpha=None, steps=i)
                             temp_dict[col_name] = pgd_result['Robust_acc']
+                            
+                    if ria:
+                        print(f"\n Act:{act_name}, opt:{opt}, replaceALL:{replaceALL}\n")
+                        temp_dict = randomIntAttackTest(act=act_name, opt=opt, ckpt=checkpoint, replace=replaceALL, alpha=None, temp_dict=temp_dict, steps=ria_step)
                     
                     result_dict[row_name] = temp_dict
+                    
+                    df = pd.DataFrame.from_dict(result_dict, orient='index')
+                    print(df)
+                    df.to_csv(file_name)
 
             else:
                 alpha = [1.2, 5]
@@ -90,17 +164,25 @@ def all_test(fgsm = True, pgd_step = 3, file_name = "attak_test.csv"):
                         checkpoint = ckpt_dict[a][opt]
 
                         if fgsm:
-                            fgsm_result = fgsm_test(act_name, checkpoint, replaceALL, a)
+                            fgsm_result = fgsm_test(name=act_name,opt=opt, ckpt= checkpoint, replace=replaceALL, alpha=a)
                             temp_dict['pure_acc'] = fgsm_result['val_acc']
                             temp_dict['FGSM'] = fgsm_result['Robust_acc']
 
-                        if pgd_step != 0:
+                        if pgd:
                             for i in pgd_steps:
                                 col_name = f"PGD {i}"
-                                pgd_result = pgd_test(act_name, checkpoint, replaceALL, a, i)
+                                pgd_result = pgd_test(name=act_name,opt=opt, ckpt= checkpoint, replace=replaceALL, alpha=a, steps=i)
                                 temp_dict[col_name] = pgd_result['Robust_acc']
                         
+                        if ria:
+                            print(f"\n Act:{act_name}, alpha={a}, opt:{opt}, , replaceALL:{replaceALL}\n")
+                            temp_dict = randomIntAttackTest(act=act_name, opt=opt, ckpt=checkpoint, replace=replaceALL, alpha=a, temp_dict=temp_dict, steps=ria_step)
+                        
                         result_dict[row_name] = temp_dict
+                        
+                        df = pd.DataFrame.from_dict(result_dict, orient='index')
+                        print(df)
+                        df.to_csv(file_name)
 
     df = pd.DataFrame.from_dict(result_dict, orient='index')
     print(df)
@@ -108,19 +190,128 @@ def all_test(fgsm = True, pgd_step = 3, file_name = "attak_test.csv"):
     return
 
 
-config = {
-    'architecture' : 'resnet18',
-    'activation' : 'gelu',
-    'replaceAll' : False, 
-    'dataset' : 'CIFAR10',
-    'batch_size' : 256,
-    'num_workers' : 24,
-    'adv' : True,
-    'eps' : 0.0314,
-    'alpha' : 5,
-    'atk' : 'PGD',
-    'steps' : 3
-}
+def all_test_wandb(fgsm = True, pgd = True, pgd_step = 3, ria=True, ria_step = 30):
+    optim = ['SGD', 'Adam', 'AdamW']
+    variable = ['Vbrelu', 'leakyVbrelu', 'PVbrelu']
+    replace = [(ckpt_path, False), (all_ckpt_path, True)]
+    pgd_steps = range(1, pgd_step+1)
+    result_dict = dict()
+
+    for ckpt_var, replaceALL in replace:
+        for act_name, ckpt_dict in ckpt_var.items():
+            if act_name not in variable:
+                for opt in optim:
+                    temp_dict = dict()
+                    temp_dict['optimizer'] = opt
+                    row_name = f"{act_name}{'(ALL)' if replaceALL else ''}-{opt}"
+                    checkpoint = ckpt_dict[opt]
+                    
+                    wandb.init(
+                        project="attack_test",
+                        entity="kau-quantum",
+                        name=row_name,
+                        config=make_config(
+                            act=act_name,
+                            opt=opt,
+                            replaceALL=replaceALL,
+                            adv=True
+                        )
+                    )
+
+                    if fgsm:
+                        fgsm_result = fgsm_test(name=act_name, opt=opt, ckpt=checkpoint, replace=replaceALL, alpha=None)
+                        # temp_dict['pure_acc'] = fgsm_result['val_acc']
+                        # temp_dict['FGSM'] = fgsm_result['Robust_acc']
+                        wandb.log({"pure_acc" : fgsm_result['val_acc'],
+                                   "pure_loss": fgsm_result['val_loss'],
+                                   "FGSM_acc" : fgsm_result['Robust_acc'],
+                                   "FGSM_loss": fgsm_result['Robust_loss']},
+                                  )
+
+                    if pgd:
+                        for i in pgd_steps:
+                            col_name = f"PGD {i}"
+                            pgd_result = pgd_test(name=act_name,opt=opt, ckpt= checkpoint, replace=replaceALL, alpha=None, steps=i)
+                            # temp_dict[col_name] = pgd_result['Robust_acc']
+                            wandb.log({"PGD_acc" : pgd_result['Robust_acc'],
+                                       "PGD_loss": pgd_result['Robust_loss']})
+                            
+                    if ria:
+                        print(f"\n Act:{act_name}, opt:{opt}, replaceALL:{replaceALL}\n")
+                        temp_dict = randomIntAttackTestWandb(act=act_name, opt=opt, ckpt=checkpoint, replace=replaceALL, alpha=None, temp_dict=temp_dict, steps=ria_step)
+                    
+                    # result_dict[row_name] = temp_dict
+                    wandb.finish()
+                    
+                
+
+            else:
+                alpha = [1.2, 5]
+                for a in alpha:
+                    for opt in optim:
+                        temp_dict = dict()
+                        temp_dict['optimizer'] = opt
+                        alpha_string = f"_a={a}"
+                        row_name = f"{act_name}{alpha_string}{'(ALL)' if replaceALL else ''}-{opt}"
+                        checkpoint = ckpt_dict[a][opt]
+                        
+                        wandb.init(
+                        project="attack_test",
+                        entity="kau-quantum",
+                        name=row_name,
+                        config=make_config(
+                            act=act_name,
+                            opt=opt,
+                            replaceALL=replaceALL,
+                            adv=True,
+                            alpha=a
+                            )
+                        )
+
+                        if fgsm:
+                            fgsm_result = fgsm_test(name=act_name,opt=opt, ckpt= checkpoint, replace=replaceALL, alpha=a)
+                            # temp_dict['pure_acc'] = fgsm_result['val_acc']
+                            # temp_dict['FGSM'] = fgsm_result['Robust_acc']
+                            wandb.log({"pure_acc" : fgsm_result['val_acc'],
+                                        "pure_loss": fgsm_result['val_loss'],
+                                        "FGSM_acc" : fgsm_result['Robust_acc'],
+                                        "FGSM_loss": fgsm_result['Robust_loss']})
+
+                        if pgd:
+                            for i in pgd_steps:
+                                col_name = f"PGD {i}"
+                                pgd_result = pgd_test(name=act_name,opt=opt,ckpt= checkpoint,replace= replaceALL,alpha= a,steps= i)
+                                # temp_dict[col_name] = pgd_result['Robust_acc']
+                                wandb.log({"PGD_acc" : pgd_result['Robust_acc'],
+                                            "PGD_loss": pgd_result['Robust_loss']})
+                                
+                        
+                        if ria:
+                            print(f"\n Act:{act_name}, alpha={a}, opt:{opt}, , replaceALL:{replaceALL}\n")
+                            temp_dict = randomIntAttackTestWandb(act=act_name, opt=opt, ckpt=checkpoint, replace=replaceALL, alpha=a, temp_dict=temp_dict, steps=ria_step)
+                        
+                        # result_dict[row_name] = temp_dict
+                        wandb.finish()
+                        
+                        
+
+    
+    return
+
+
+# config = {
+#     'architecture' : 'resnet18',
+#     'activation' : 'gelu',
+#     'replaceAll' : False, 
+#     'dataset' : 'CIFAR10',
+#     'batch_size' : 256,
+#     'num_workers' : 24,
+#     'adv' : True,
+#     'eps' : 0.0314,
+#     'alpha' : 5,
+#     'atk' : 'PGD',
+#     'steps' : 3
+# }
 
 
 # old ver
@@ -523,4 +714,5 @@ all_ckpt_path = {
     },
 }
 
-all_test(fgsm = True, pgd_step = 10, file_name = 'new_akt.csv')
+# all_test(fgsm = False, pgd = False, pgd_step = 0, ria=True, ria_step=100, file_name = 'RIA_akt.csv')
+all_test_wandb(fgsm=True, pgd=True, pgd_step=10, ria=True, ria_step=100)
