@@ -9,3 +9,4 @@ wandb
 data
 atk_test.ipynb
 make_model.py
+lightning_logs
