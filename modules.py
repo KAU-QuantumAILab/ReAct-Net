@@ -22,7 +22,7 @@ from torchattacks import FGSM, PGD
 import yaml
 import numpy as np
 from torch.nn import GELU, SiLU, ELU, LeakyReLU, PReLU
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 
 
 def seed_everything(seed:int = 1004):
@@ -240,9 +240,11 @@ class LitAutoEncoder(pl.LightningModule):
         atk_step = self.config.get('steps') if self.config.get('steps') is not None else 3
         adv_images = self.generateAdv(x=x, y=y, atkType=atkType, eps = self.config['eps'], steps=atk_step)
         logits = self.encoder(adv_images)
+        loss = nn.functional.cross_entropy(logits, y)
         preds = torch.argmax(logits, dim=1)
         acc = accuracy(preds, y, num_classes=self.config["num_classes"], task="multiclass")
         self.log("Robust_acc", acc, prog_bar=True, sync_dist=True)
+        self.log("Robust_loss", loss, prog_bar=False, sync_dist=True)
 
 
     def evaluate(self, batch, stage=None):
@@ -361,7 +363,7 @@ def choose_dataset(config):
 
 
 def load_model(ckpt, config):
-    model = LitAutoEncoder.load_from_checkpoint(ckpt, config=config)
+    model = LitAutoEncoder.load_from_checkpoint(checkpoint_path=ckpt, config=config)
     return model
 
 
@@ -416,40 +418,39 @@ class randintchange(torch.nn.Module):
         return self.totensor(img)
     
 
-from torch.utils.data import Dataset, DataLoader
-from torchvision.transforms import ToPILImage
-import matplotlib.pyplot as plt
+# from torchvision.transforms import ToPILImage
+# import matplotlib.pyplot as plt
 
-def ltol(loader):
+def onePixelAttack(loader):
     dataset = loader.dataset
     transformed_dataset = TransformSubset(dataset)
-    return DataLoader(transformed_dataset, batch_size=1, shuffle=False, num_workers=1)
+    return DataLoader(transformed_dataset, batch_size=loader.batch_size, shuffle=False, num_workers=loader.num_workers)
 
 
-def test():
-    data_config = {
-        "dataset" : "CIFAR10",
-        "batch_size" : 1,
-        "num_workers" : 1
-    }
+# def test():
+#     data_config = {
+#         "dataset" : "CIFAR10",
+#         "batch_size" : 1,
+#         "num_workers" : 1
+#     }
 
-    _, valloader = choose_dataset(data_config)
+#     _, valloader = choose_dataset(data_config)
     
     
-    im = ToPILImage()
+#     im = ToPILImage()
 
-    imgs = []
+#     imgs = []
 
-    for i in range(0, 5):
-        sample = next(iter(valloader))[0][0]
-        imgs.append(im(sample))
-        print(f"{i} attack image append")
-        valloader = ltol(valloader)
+#     for i in range(0, 5):
+#         sample = next(iter(valloader))[0][0]
+#         imgs.append(im(sample))
+#         print(f"{i} attack image append")
+#         valloader = ltol(valloader)
 
-        print(f"{i}th loop end\n")
+#         print(f"{i}th loop end\n")
         
         
-    for img in imgs:
-        plt.imshow(img)
-        plt.axis('off')  # 축 제거 (선택 사항)
-        plt.show()
+#     for img in imgs:
+#         plt.imshow(img)
+#         plt.axis('off')  # 축 제거 (선택 사항)
+#         plt.show()
