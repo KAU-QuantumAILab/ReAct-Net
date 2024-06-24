@@ -22,7 +22,7 @@ from torchattacks import FGSM, PGD
 import yaml
 import numpy as np
 from torch.nn import GELU, SiLU, ELU, LeakyReLU, PReLU
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, Subset
 
 
 def seed_everything(seed:int = 1004):
@@ -148,6 +148,7 @@ class LitAutoEncoder(pl.LightningModule):
     def __init__(self, config):
         super().__init__()
         self.config = config
+        self.correct_indices = []
         # self.save_hyperparameters() # sweep 오류시 제거
         if config["architecture"] == "MLP":
             self.encoder = MLPMnist(config)
@@ -247,12 +248,23 @@ class LitAutoEncoder(pl.LightningModule):
         self.log("Robust_loss", loss, prog_bar=False, sync_dist=True)
 
 
-    def evaluate(self, batch, stage=None):
+    def evaluate(self, batch, batch_idx, stage=None):
         x, y = batch
         logits = self.encoder(x)
         loss = nn.functional.cross_entropy(logits, y)
         preds = torch.argmax(logits, dim=1)
         acc = accuracy(preds, y, num_classes=self.config["num_classes"], task="multiclass")
+
+        # 예측값과 정답 비교 (맞춘 경우 True, 틀린 경우 False)
+        is_correct = (preds == y)
+
+        # 맞춘 데이터의 인덱스 계산 및 저장
+        # batch_size = x.size(0)
+        batch_size = self.config['batch_size']
+        # print(f"batch_idx = {batch_idx} * batch_size = {batch_size} = {batch_idx * batch_size}")
+        correct_indices_in_batch = [batch_idx * batch_size + i for i, correct in enumerate(is_correct) if correct]
+        self.correct_indices.extend(correct_indices_in_batch)
+
 
         if stage:
             self.log(f"{stage}_loss", loss, prog_bar=True, sync_dist=True)
@@ -263,10 +275,15 @@ class LitAutoEncoder(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        return self.evaluate(batch, "val")
+        return self.evaluate(batch, batch_idx, "val")
+    
+    def get_correct_indices(self):
+        correct_indices = self.correct_indices
+        self.correct_indices = []  # 초기화
+        return correct_indices
 
     def test_step(self, batch, batch_idx):
-        return self.evaluate(batch, "test")
+        return self.evaluate(batch, batch_idx, "test")
 
 
 def choose_dataset(config):
@@ -425,6 +442,13 @@ def onePixelAttack(loader):
     dataset = loader.dataset
     transformed_dataset = TransformSubset(dataset)
     return DataLoader(transformed_dataset, batch_size=loader.batch_size, shuffle=False, num_workers=loader.num_workers)
+
+def onePixelAttackWithSubset(loader, idx):
+    dataset = loader.dataset
+    subset = Subset(dataset=dataset, indices=idx)
+    subset = TransformSubset(dataset)
+    return DataLoader(subset, batch_size=loader.batch_size, shuffle=False, num_workers=loader.num_workers)
+    
 
 
 # def test():

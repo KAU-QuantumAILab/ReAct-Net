@@ -1,4 +1,4 @@
-from modules import load_model, choose_dataset, seed_everything, onePixelAttack
+from modules import load_model, choose_dataset, seed_everything, onePixelAttack, onePixelAttackWithSubset
 import lightning.pytorch as pl
 import torch
 import pandas as pd
@@ -116,7 +116,55 @@ def randomIntAttackTestWandb(act, opt, ckpt, replace, alpha, temp_dict, steps = 
     return temp_dict
 
 
-def all_test(fgsm = True, pgd = True, pgd_step = 3, ria=True, ria_step = 30, file_name = "attak_test.csv"):
+
+
+def randomIntAttackWithSubsetTest(act, opt, ckpt, replace, alpha, temp_dict, steps = 30):
+    # load model -> evaluate -> record -> attack -> evaluate (repeat)
+    cfg = make_config(act=act, opt=opt, replaceALL=replace, alpha=alpha, adv=False, atk_type='RIA')
+    model = load_model(ckpt=ckpt, config=cfg)
+    print(f"\n Act:{act}, alpha={alpha}, opt:{opt}, , replaceALL:{replace}\n")
+    trainer = pl.Trainer()
+    _, valloader = choose_dataset(cfg)
+    num_data = len(valloader.dataset)
+    for i in range(0, steps + 1):
+        print(f"\n{i} Dots Attack, \t model : Act:{act}, alpha={alpha}, opt:{opt}, , replaceALL:{replace}")
+        col_name = f"RIA_{i}"
+        trainer.validate(model=model, dataloaders=valloader)
+        # temp_dict[col_name] = result['val_acc']
+        cor_idx = model.get_correct_indices()
+        accuracy = len(cor_idx) / num_data * 100
+        print(f"Accuracy : {accuracy}")
+        if accuracy == 0: break
+        valloader = onePixelAttackWithSubset(valloader, cor_idx)
+    
+    return temp_dict
+
+
+def randomIntAttackWithSubsetTestWandb(act, opt, ckpt, replace, alpha, temp_dict, steps = 30):
+    # load model -> evaluate -> record -> attack -> evaluate (repeat)
+    cfg = make_config(act=act, opt=opt, replaceALL=replace, alpha=alpha, adv=False, atk_type='RIA')
+    model = load_model(ckpt=ckpt, config=cfg)
+    print(f"\n Act:{act}, alpha={alpha}, opt:{opt}, , replaceALL:{replace}\n")
+    trainer = pl.Trainer()
+    _, valloader = choose_dataset(cfg)
+    num_data = len(valloader.dataset)
+    for i in range(0, steps + 1):
+        print(f"\n{i} Dots Attack, \t model : Act:{act}, alpha={alpha}, opt:{opt}, , replaceALL:{replace}")
+        col_name = f"RIA_{i}"
+        trainer.validate(model=model, dataloaders=valloader)
+        cor_idx = model.get_correct_indices()
+        accuracy = len(cor_idx) / num_data * 100
+        # wandb.log({"RIA_acc" : result['val_acc'],
+        #            "RIA_loss": result['val_loss']})
+        wandb.log({"RIA_acc" : accuracy})
+        print(f"Accuracy : {accuracy}")
+        if accuracy == 0: break
+        valloader = onePixelAttackWithSubset(valloader, cor_idx)
+    
+    return temp_dict
+
+
+def all_test(fgsm = True, pgd = True, pgd_step = 3, ria=True, ria_step = 30, ria_subset=False, file_name = "attak_test.csv"):
     optim = ['SGD', 'Adam', 'AdamW']
     variable = ['Vbrelu', 'leakyVbrelu', 'PVbrelu']
     replace = [(ckpt_path, False), (all_ckpt_path, True)]
@@ -145,7 +193,10 @@ def all_test(fgsm = True, pgd = True, pgd_step = 3, ria=True, ria_step = 30, fil
                             
                     if ria:
                         print(f"\n Act:{act_name}, opt:{opt}, replaceALL:{replaceALL}\n")
-                        temp_dict = randomIntAttackTest(act=act_name, opt=opt, ckpt=checkpoint, replace=replaceALL, alpha=None, temp_dict=temp_dict, steps=ria_step)
+                        if ria_subset:
+                            temp_dict = randomIntAttackWithSubsetTest(act=act_name, opt=opt, ckpt=checkpoint, replace=replaceALL, alpha=None, temp_dict=temp_dict, steps=ria_step)    
+                        else:
+                            temp_dict = randomIntAttackTest(act=act_name, opt=opt, ckpt=checkpoint, replace=replaceALL, alpha=None, temp_dict=temp_dict, steps=ria_step)
                     
                     result_dict[row_name] = temp_dict
                     
@@ -176,7 +227,10 @@ def all_test(fgsm = True, pgd = True, pgd_step = 3, ria=True, ria_step = 30, fil
                         
                         if ria:
                             print(f"\n Act:{act_name}, alpha={a}, opt:{opt}, , replaceALL:{replaceALL}\n")
-                            temp_dict = randomIntAttackTest(act=act_name, opt=opt, ckpt=checkpoint, replace=replaceALL, alpha=a, temp_dict=temp_dict, steps=ria_step)
+                            if ria_subset:
+                                temp_dict = randomIntAttackWithSubsetTest(act=act_name, opt=opt, ckpt=checkpoint, replace=replaceALL, alpha=a, temp_dict=temp_dict, steps=ria_step)    
+                            else:
+                                temp_dict = randomIntAttackTest(act=act_name, opt=opt, ckpt=checkpoint, replace=replaceALL, alpha=a, temp_dict=temp_dict, steps=ria_step)
                         
                         result_dict[row_name] = temp_dict
                         
@@ -190,7 +244,7 @@ def all_test(fgsm = True, pgd = True, pgd_step = 3, ria=True, ria_step = 30, fil
     return
 
 
-def all_test_wandb(fgsm = True, pgd = True, pgd_step = 3, ria=True, ria_step = 30):
+def all_test_wandb(fgsm = True, pgd = True, pgd_step = 3, ria=True, ria_step = 30, ria_subset=False, project_name = 'attack_test'):
     optim = ['SGD', 'Adam', 'AdamW']
     variable = ['Vbrelu', 'leakyVbrelu', 'PVbrelu']
     replace = [(ckpt_path, False), (all_ckpt_path, True)]
@@ -207,7 +261,7 @@ def all_test_wandb(fgsm = True, pgd = True, pgd_step = 3, ria=True, ria_step = 3
                     checkpoint = ckpt_dict[opt]
                     
                     wandb.init(
-                        project="attack_test",
+                        project=project_name,
                         entity="kau-quantum",
                         name=row_name,
                         config=make_config(
@@ -238,7 +292,10 @@ def all_test_wandb(fgsm = True, pgd = True, pgd_step = 3, ria=True, ria_step = 3
                             
                     if ria:
                         print(f"\n Act:{act_name}, opt:{opt}, replaceALL:{replaceALL}\n")
-                        temp_dict = randomIntAttackTestWandb(act=act_name, opt=opt, ckpt=checkpoint, replace=replaceALL, alpha=None, temp_dict=temp_dict, steps=ria_step)
+                        if ria_subset:
+                            temp_dict = randomIntAttackWithSubsetTestWandb(act=act_name, opt=opt, ckpt=checkpoint, replace=replaceALL, alpha=None, temp_dict=temp_dict, steps=ria_step)
+                        else:
+                            temp_dict = randomIntAttackTestWandb(act=act_name, opt=opt, ckpt=checkpoint, replace=replaceALL, alpha=None, temp_dict=temp_dict, steps=ria_step)
                     
                     # result_dict[row_name] = temp_dict
                     wandb.finish()
@@ -256,7 +313,7 @@ def all_test_wandb(fgsm = True, pgd = True, pgd_step = 3, ria=True, ria_step = 3
                         checkpoint = ckpt_dict[a][opt]
                         
                         wandb.init(
-                        project="attack_test",
+                        project=project_name,
                         entity="kau-quantum",
                         name=row_name,
                         config=make_config(
@@ -288,7 +345,10 @@ def all_test_wandb(fgsm = True, pgd = True, pgd_step = 3, ria=True, ria_step = 3
                         
                         if ria:
                             print(f"\n Act:{act_name}, alpha={a}, opt:{opt}, , replaceALL:{replaceALL}\n")
-                            temp_dict = randomIntAttackTestWandb(act=act_name, opt=opt, ckpt=checkpoint, replace=replaceALL, alpha=a, temp_dict=temp_dict, steps=ria_step)
+                            if ria_subset:
+                                temp_dict = randomIntAttackWithSubsetTestWandb(act=act_name, opt=opt, ckpt=checkpoint, replace=replaceALL, alpha=a, temp_dict=temp_dict, steps=ria_step)    
+                            else:
+                                temp_dict = randomIntAttackTestWandb(act=act_name, opt=opt, ckpt=checkpoint, replace=replaceALL, alpha=a, temp_dict=temp_dict, steps=ria_step)
                         
                         # result_dict[row_name] = temp_dict
                         wandb.finish()
@@ -715,4 +775,5 @@ all_ckpt_path = {
 }
 
 # all_test(fgsm = False, pgd = False, pgd_step = 0, ria=True, ria_step=100, file_name = 'RIA_akt.csv')
-all_test_wandb(fgsm=True, pgd=True, pgd_step=10, ria=True, ria_step=100)
+# all_test_wandb(fgsm=True, pgd=True, pgd_step=10, ria=True, ria_step=100)
+all_test_wandb(fgsm=False, pgd=False, pgd_step=0, ria=True, ria_step=300, ria_subset=True, project_name="RIA_Subset_test")
