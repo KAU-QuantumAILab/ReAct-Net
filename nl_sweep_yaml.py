@@ -32,8 +32,8 @@ parser = argparse.ArgumentParser(
 
 parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
 # parser.add_argument('--project_name', default="Brelu", help='wandb project name')
-parser.add_argument('--project_name', default="Brelu_noAdv", help='wandb project name')
-# parser.add_argument('--project_name', default="early_Stop_test", help='wandb project name')
+parser.add_argument('--project_name', default="Brelu_ImageNet_A100", help='wandb project name')
+# parser.add_argument('--project_name', default="tmux_test", help='wandb project name')
 # parser.add_argument('--project_name', default="Brelu_CIFAR-10", help='wandb project name')
 parser.add_argument('--entity', default='kau-quantum', help='wandb entity name')
 parser.add_argument('--devices', default=0, type=int, help='choose the CUDA(ex: 0, 1, 2, -1)')
@@ -350,8 +350,8 @@ def choose_dataset(config):
             transforms.ToTensor(),
         ])
 
-        trainset = ImageFolder('~/data/ImageNet/2012/ILSVRC2012_img_train', transform=transform)
-        testset = ImageFolder('~/data/ImageNet/2012/ILSVRC2012_img_val', transform=transform)
+        trainset = ImageFolder('/data/ImageNet/2012/ILSVRC2012_img_train', transform=transform)
+        testset = ImageFolder('/data/ImageNet/2012/ILSVRC2012_img_val', transform=transform)
         
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'], shuffle=True, num_workers =config['num_workers'])
 
@@ -435,7 +435,7 @@ def train_model():
     
     if config.get('adv') == False:
         checkpoint_callback = ModelCheckpoint(monitor="val_acc", mode="max",
-                                            dirpath=f"./ckpt/{config['dataset']}/{config['activation']}",
+                                            dirpath=f"./ckpt/{config['dataset']}/{config['activation']}/{'all' if config.get('replaceAll') else 'part'}",
                                             filename=file_name + '{epoch}_{val_acc:.4f}')
         callbacks.append(checkpoint_callback)
         
@@ -443,7 +443,7 @@ def train_model():
         # callbacks.append(early_stop)
     else:
         checkpoint_callback = ModelCheckpoint(monitor="Robust_acc", mode="max",
-                                            dirpath=f"./ckpt/{config['dataset']}/{config['activation']}",
+                                            dirpath=f"./ckpt/{config['dataset']}/{config['activation']}/{'all' if config.get('replaceAll') else 'part'}",
                                             filename=file_name + '{epoch}_{Robust_acc:.4f}')
         callbacks.append(checkpoint_callback)
         
