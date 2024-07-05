@@ -32,8 +32,8 @@ parser = argparse.ArgumentParser(
 
 parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
 # parser.add_argument('--project_name', default="Brelu", help='wandb project name')
-parser.add_argument('--project_name', default="Brelu_ImageNet_A100", help='wandb project name')
-# parser.add_argument('--project_name', default="tmux_test", help='wandb project name')
+# parser.add_argument('--project_name', default="Brelu_ImageNet_A100", help='wandb project name')
+parser.add_argument('--project_name', default="BReLU_CIFAR10_adv", help='wandb project name')
 # parser.add_argument('--project_name', default="Brelu_CIFAR-10", help='wandb project name')
 parser.add_argument('--entity', default='kau-quantum', help='wandb entity name')
 parser.add_argument('--devices', default=0, type=int, help='choose the CUDA(ex: 0, 1, 2, -1)')
@@ -196,25 +196,54 @@ class LitAutoEncoder(pl.LightningModule):
         else:
             self.encoder = ModelWrapper(config)
         print(self.encoder)
+        
+    
+    def mixup_data(x, y):
+        mixup_alpha = 1.0
+        lam = np.random.beta(mixup_alpha, mixup_alpha)
+        batch_size = x.size()[0]
+        index = torch.randperm(batch_size).cuda()
+        mixed_x = lam * x + (1 - lam) * x[index, :]
+        y_a, y_b = y, y[index]
+        return mixed_x, y_a, y_b, lam
+    
+    def mixup_criterion(criterion, pred, y_a, y_b, lam):
+        return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
 
     def training_step(self, batch, batch_idx):
         # training_step defines the train loop.
         # it is independent of forward
         x, y = batch
-        z = self.encoder(x)
-        loss = nn.functional.cross_entropy(z, y)
         # Logging to TensorBoard (if installed) by default
-        self.log("train_loss", loss)
         # print(loss)
 
         if(self.config['adv']):
-            advIdx = torch.randint(x.shape[0], (int(x.shape[0] * 0.2),))
-            advExample = self.generateAdv(x[advIdx], y[advIdx])
-            advZ = self.encoder(advExample)
-            advLoss = nn.functional.cross_entropy(advZ, y[advIdx])
-            return loss + advLoss
+            # advIdx = torch.randint(x.shape[0], (int(x.shape[0] * 0.2),))
+            # advExample = self.generateAdv(x[advIdx], y[advIdx])
+            # advZ = self.encoder(advExample)
+            # advLoss = nn.functional.cross_entropy(advZ, y[advIdx])
+            # self.log("train_loss", loss + advLoss)
+            # return loss + advLoss
+            
+            # interpolated adversarial training
+            mixup_x, mixup_y_a, mixup_y_b, mixup_lambda = self.mixup_data(x, y)
+            mixup_output = self.encoder(mixup_x)
+            unperturbed_loss = self.mixup_criterion(nn.functional.cross_entropy, mixup_output, mixup_y_a, mixup_y_b, mixup_lambda)
+            
+            advExample = self.generateAdv(x, y, "PGD", self.config['eps'])
+            adv_input, adv_y_a, adv_y_b, adv_lam = self.mixup_data(advExample, y)
+            adv_output = self.encoder(adv_input)
+            perturbed_loss = self.mixup_criterion(nn.functional.cross_entropy, adv_output, adv_y_a, adv_y_b, adv_lam)
+            
+            loss = (unperturbed_loss + perturbed_loss) / 2
+
         else:
-            return loss
+            z = self.encoder(x)
+            loss = nn.functional.cross_entropy(z, y)
+            
+        self.log("train_loss", loss)
+        return loss
+
 
     def configure_optimizers(self):
         if(self.config['optimizer'] == "Adam"):
@@ -262,16 +291,19 @@ class LitAutoEncoder(pl.LightningModule):
         else:
             return {"optimizer": optimizer, "monitor": "val_acc"}
     
-
-    def generateAdv(self, x, y, eps = 0.0314, alpha=0.00784, steps=3):
+    
+    def generateAdv(self, x, y, atkType = 'PGD', eps = 0.0314, alpha=0.00784, steps=3):
         with torch.enable_grad():
-            atk = torchattacks.PGD(self.encoder, eps=eps, alpha=alpha, steps=steps)
+            if atkType == 'PGD':
+                atk = torchattacks.PGD(self.encoder, eps=eps, alpha=alpha, steps=steps)
+            elif atkType == 'FGSM':
+                atk = torchattacks.FGSM(self.encoder, eps=eps)
             adv_images = atk(x, y)
         return adv_images
 
 
     def evaluateRobust(self, x, y):
-        adv_images = self.generateAdv(x, y, self.config['eps'])
+        adv_images = self.generateAdv(x, y, "PGD", self.config['eps'])
         logits = self.encoder(adv_images)
         preds = torch.argmax(logits, dim=1)
         acc = accuracy(preds, y, num_classes=self.config["num_classes"], task="multiclass")
