@@ -33,7 +33,7 @@ parser = argparse.ArgumentParser(
 parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
 # parser.add_argument('--project_name', default="Brelu", help='wandb project name')
 # parser.add_argument('--project_name', default="Brelu_ImageNet_A100", help='wandb project name')
-parser.add_argument('--project_name', default="BReLU_CIFAR10_adv", help='wandb project name')
+parser.add_argument('--project_name', default="BReLU_CIFAR10_adv_interpolated", help='wandb project name')
 # parser.add_argument('--project_name', default="Brelu_CIFAR-10", help='wandb project name')
 parser.add_argument('--entity', default='kau-quantum', help='wandb entity name')
 parser.add_argument('--devices', default=0, type=int, help='choose the CUDA(ex: 0, 1, 2, -1)')
@@ -198,7 +198,7 @@ class LitAutoEncoder(pl.LightningModule):
         print(self.encoder)
         
     
-    def mixup_data(x, y):
+    def mixup_data(self, x, y):
         mixup_alpha = 1.0
         lam = np.random.beta(mixup_alpha, mixup_alpha)
         batch_size = x.size()[0]
@@ -207,7 +207,7 @@ class LitAutoEncoder(pl.LightningModule):
         y_a, y_b = y, y[index]
         return mixed_x, y_a, y_b, lam
     
-    def mixup_criterion(criterion, pred, y_a, y_b, lam):
+    def mixup_criterion(self, criterion, pred, y_a, y_b, lam):
         return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
 
     def training_step(self, batch, batch_idx):
@@ -459,6 +459,8 @@ def train_model():
     variable_act = ["Vbrelu", "leakyVbrelu", "PVbrelu"]
     alpha = f"_a={config.get('alpha')}" if config['activation'] in variable_act else ''
 
+    a_dir = '' if alpha=='' else f"/a={config.get('alpha')}"
+    dir_path = f"./ckpt/{config['dataset']}/{'all' if config.get('replaceAll') else 'part'}/{config['optimizer']}/{config['activation']}{a_dir}"
     file_name = f"{config['activation']}{alpha}{'_ALL' if config.get('replaceAll') else ''}_{config['dataset']}_{config['optimizer']}_"
     
     callbacks = []
@@ -467,7 +469,7 @@ def train_model():
     
     if config.get('adv') == False:
         checkpoint_callback = ModelCheckpoint(monitor="val_acc", mode="max",
-                                            dirpath=f"./ckpt/{config['dataset']}/{config['activation']}/{'all' if config.get('replaceAll') else 'part'}",
+                                            dirpath=dir_path,
                                             filename=file_name + '{epoch}_{val_acc:.4f}')
         callbacks.append(checkpoint_callback)
         
@@ -475,7 +477,7 @@ def train_model():
         # callbacks.append(early_stop)
     else:
         checkpoint_callback = ModelCheckpoint(monitor="Robust_acc", mode="max",
-                                            dirpath=f"./ckpt/{config['dataset']}/{config['activation']}/{'all' if config.get('replaceAll') else 'part'}",
+                                            dirpath=dir_path,
                                             filename=file_name + '{epoch}_{Robust_acc:.4f}')
         callbacks.append(checkpoint_callback)
         
