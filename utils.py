@@ -21,6 +21,8 @@ def getDataNormalization(dataset):
         return (0.5071, 0.4865, 0.4409), (0.2673, 0.2564, 0.2762)
     elif(dataset == 'ImageNet'):
         return (0.485, 0.456, 0.406), (0.229, 0.224, 0.225)
+    elif(dataset == 'SVHN'):
+        return (0.4376821, 0.4437697, 0.47280442), (0.19803012, 0.20101562, 0.19703614)
 
 def mixup_data(x, y):
     mixup_alpha = 1.0

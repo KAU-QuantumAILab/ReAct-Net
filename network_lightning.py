@@ -51,7 +51,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='RaCUN Network Training')
     parser.add_argument('--model',  help='resnet18 / resnet50 / resnet101 선택 가능')    # 필요한 인수를 추가
-    parser.add_argument('--dataset',help='MNIST / CIFAR10 / ImageNet 선택가능')
+    parser.add_argument('--dataset',help='MNIST / CIFAR10 / ImageNet / SVHN 선택가능')
     parser.add_argument('--racun', action='store_true')
     parser.add_argument('--wandb', action='store_true')
     parser.add_argument('--lr', type=float, default=0.001)

@@ -6,7 +6,7 @@ from torch import optim, nn, Tensor
 from torch.utils.data import DataLoader, random_split
 from torch.optim.lr_scheduler import OneCycleLR
 import torchvision.transforms as transforms
-from torchvision.datasets import MNIST, CIFAR10, CIFAR100, ImageNet, ImageFolder
+from torchvision.datasets import MNIST, CIFAR10, CIFAR100, ImageNet, ImageFolder, SVHN
 from torchmetrics.functional import accuracy
 from racun import BatchRaCUN, BatchRaCUNWrapper
 import torchattacks
@@ -38,6 +38,9 @@ class CustomDataModule(L.LightningDataModule):
         elif(self.dataset=="MNIST"):
             MNIST(root='~/data', train=True, download=True)
             MNIST(root='~/data', train=False, download=True)
+        elif(self.dataset=="SVHN"):
+            SVHN(root='~/data', split="train", download=True)
+            SVHN(root='~/data', split="test", download=True)
 
     def setup(self, stage: str):
         if(self.dataset=="CIFAR10"):
@@ -84,6 +87,17 @@ class CustomDataModule(L.LightningDataModule):
                 self.trainset = MNIST(root='~/data', train=True,
                                                         download=True, transform=train_transform)
                 self.testset = MNIST(root='~/data', train=False,
+                                                    download=True, transform=train_transform)
+                
+        elif(self.dataset=="SVHN"):
+            train_transform = transforms.Compose(
+                [transforms.ToTensor(),
+            ])
+
+            if(stage == "fit"):
+                self.trainset = SVHN(root='~/data', split="train",
+                                                        download=True, transform=train_transform)
+                self.testset = SVHN(root='~/data', split="test",
                                                     download=True, transform=train_transform)
                                                     
         elif(self.dataset=="ImageNet"):
@@ -206,7 +220,7 @@ class ImageClassifier(pl.LightningModule):
         
         if(self.config["lr_scheduler"]):
             train_dataloader = self.trainer.datamodule.train_dataloader() 
-            data_per_gpu = len(train_dataloader.dataset) // 4 + 1
+            data_per_gpu = len(train_dataloader.dataset) // 2 + 1
             steps_per_epoch = data_per_gpu // self.config["batch_size"] + 1
             scheduler_dict = {
                 "scheduler": OneCycleLR(
