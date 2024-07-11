@@ -40,7 +40,7 @@ def fgsm_test(name, opt, ckpt, replace, alpha):
 
     model = load_model(ckpt=ckpt, config=cfg)
     _, valloader = choose_dataset(config=cfg)
-    trainer = pl.Trainer(inference_mode=False)
+    trainer = pl.Trainer(inference_mode=False, devices = [0])
     result = trainer.validate(model, valloader)
     return result[0]
 
@@ -50,7 +50,7 @@ def pgd_test(name, opt, ckpt, replace, alpha, steps = 3):
 
     model = load_model(ckpt=ckpt, config=cfg)
     _, valloader = choose_dataset(config=cfg)
-    trainer = pl.Trainer(inference_mode=False)
+    trainer = pl.Trainer(inference_mode=False, devices = [0])
     result = trainer.validate(model, valloader)
     return result[0]
 
@@ -60,7 +60,7 @@ def randomDotAttackTest(act, opt, ckpt, replace, alpha, temp_dict, log_wandb, st
     cfg = make_config(act=act, opt=opt, replaceALL=replace, alpha=alpha, adv=False, atk_type='RIA')
     model = load_model(ckpt=ckpt, config=cfg)
     print(f"\n Act:{act}, alpha={alpha}, opt:{opt}, , replaceALL:{replace}\n")
-    trainer = pl.Trainer()
+    trainer = pl.Trainer(devices = [0])
     _, valloader = choose_dataset(cfg)
     # num_data = len(valloader.dataset)
     for i in range(0, steps + 1):
@@ -149,6 +149,8 @@ def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
                 temp_dict = randomDotAttackTest(act=act, opt=opt, ckpt=ckpt_file_path, replace=replaceALL, 
                                                 alpha=a, temp_dict=temp_dict, log_wandb=log_wandb, steps=rda_step)
                 
+            if log_wandb:
+                wandb.finish()
             
             result_dict[row_name] = temp_dict
             # 중간 저장
@@ -167,7 +169,7 @@ if __name__=='__main__':
     all_test(
         ckpt_root_dir = './ckpt/CIFAR10_interpolated_NOT',
         fgsm = True,
-        pgd = True, pgd_step = 10,
+        pgd = True, pgd_step = 20,
         rda = True, rda_step = 100,
         log_wandb = True, project_name = 'adv_train_attack_test',
         csv_file_name = 'adv_train_attack_test.csv'
