@@ -96,8 +96,8 @@ def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
             ckpt_file_path = os.path.join(root, file)       # 체크포인트 파일 경로
             
             info = root.split('/')  # ['.', 'ckpt', 'CIFAR10_interpolated', Replace(all / part), Optim, Act]
-            replace = info[3]       # 리스트 3번째에서 전체 교체 여부
-            replaceALL = (replace == 'all') # 전체 교체면 True
+            replaceALL =replace = info[3]       # 리스트 3번째에서 전체 교체 여부
+            # replaceALL = (replace == 'all') # 전체 교체면 True
             opt = info[4]           # optimizer 정보
             act = info[5]           # activation 정보
             alpha = info[-1].lstrip('a=') if act in variable else 'NULL'    # a=5 에서 a= 제거
