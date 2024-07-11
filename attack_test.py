@@ -776,4 +776,6 @@ all_ckpt_path = {
 
 # all_test(fgsm = False, pgd = False, pgd_step = 0, ria=True, ria_step=100, file_name = 'RIA_akt.csv')
 # all_test_wandb(fgsm=True, pgd=True, pgd_step=10, ria=True, ria_step=100)
-all_test_wandb(fgsm=False, pgd=False, pgd_step=0, ria=True, ria_step=300, ria_subset=True, project_name="RIA_Subset_test")
+
+if __name__=='__main__':
+    all_test_wandb(fgsm=False, pgd=False, pgd_step=0, ria=True, ria_step=300, ria_subset=True, project_name="RIA_Subset_test")
