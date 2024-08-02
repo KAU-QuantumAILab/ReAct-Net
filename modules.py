@@ -220,7 +220,8 @@ class ImageClassifier(pl.LightningModule):
         
         if(self.config["lr_scheduler"]):
             train_dataloader = self.trainer.datamodule.train_dataloader() 
-            data_per_gpu = len(train_dataloader.dataset) // 2 + 1
+            # data_per_gpu = len(train_dataloader.dataset) // 2 + 1
+            data_per_gpu = len(train_dataloader.dataset)
             steps_per_epoch = data_per_gpu // self.config["batch_size"] + 1
             scheduler_dict = {
                 "scheduler": OneCycleLR(
@@ -236,16 +237,23 @@ class ImageClassifier(pl.LightningModule):
         else:
             return {"optimizer": optimizer, "monitor": "val_acc"}
     
-    def generateAdv(self, x, y, attackType, eps = 0.0314, alpha=0.00784, steps=7):
+    def generateAdv(self, x, y, attackType, eps = 0.0314, alpha=0.00784, steps=7, is_eval = False):
         with torch.enable_grad():
+
+            # print(adv_images.shape)
             if attackType == "PGD":
                 atk = torchattacks.PGD(self.encoder, eps=eps, alpha=alpha, steps=steps)
             elif attackType == "FGSM":
                 atk = torchattacks.FGSM(self.encoder, eps=eps)
+            elif attackType == "Pixle":
+                atk = torchattacks.Pixle(self.encoder,x_dimensions=1, y_dimensions=1)
             adv_images = atk(x, y)
+
+            
         return adv_images
     
     def evaluateRobust(self, x, y):
+
         pgd_images7 = self.generateAdv(x, y, "PGD", self.config["adv_epsilon"])
         logits = self.encoder(pgd_images7)
         preds = torch.argmax(logits, dim=1)
@@ -263,6 +271,12 @@ class ImageClassifier(pl.LightningModule):
         preds = torch.argmax(logits, dim=1)
         acc = accuracy(preds, y, num_classes=self.num_classes, task="multiclass")
         self.log("FGSM_Error", 1-acc, prog_bar=True, sync_dist=True)
+
+        pixle_images = self.generateAdv(x, y, "Pixle", self.config["adv_epsilon"])
+        logits = self.encoder(pixle_images)
+        preds = torch.argmax(logits, dim=1)
+        acc = accuracy(preds, y, num_classes=self.num_classes, task="multiclass")
+        self.log("Pixle_Error", 1-acc, prog_bar=True, sync_dist=True)
     
     def evaluate(self, batch, stage=None, dataloader_idx=None):
         x, y = batch
@@ -314,9 +328,9 @@ class ModelWrapper(pl.LightningModule):
         else:
             model = resnet_models[self.config['architecture']](weights=False, num_classes=num_classes)
             
-        if(self.config['dataset'] != 'ImageNet'):
-            model.conv1 = nn.Conv2d(input_ch, 64, kernel_size=(1, 1), stride=(1, 1), padding=(1, 1), bias=False)
-            model.maxpool = nn.Identity()
+        # if(self.config['dataset'] != 'ImageNet'):
+            # model.conv1 = nn.Conv2d(input_ch, 64, kernel_size=(1, 1), stride=(1, 1), padding=(1, 1), bias=False)
+            # model.maxpool = nn.Identity()
 
         return model
 

@@ -38,7 +38,7 @@ def main(config, WANDBLOG):
     lr_monitor = LearningRateMonitor(logging_interval='step')
     checkpoint_callback = ModelCheckpoint(monitor="val_Error", mode="min")
 
-    trainer = pl.Trainer(max_epochs = config["epochs"],logger= wandb_logger if WANDBLOG else tb_logger, callbacks=[checkpoint_callback,lr_monitor],log_every_n_steps= 15 if config["batch_size"] >= 512 else 50, devices=[2,3])
+    trainer = pl.Trainer(max_epochs = config["epochs"],logger= wandb_logger if WANDBLOG else tb_logger, callbacks=[checkpoint_callback,lr_monitor],log_every_n_steps= 15 if config["batch_size"] >= 512 else 50)
     trainer.fit(modified_resnet_encoder, dataset)
 
 
@@ -85,6 +85,25 @@ if __name__ == "__main__":
     "final_div_fac" : args.final_div_fac,
     "batch_racun_scale" : 8,
     "wd" : args.wd,
+    }
+
+    config = {
+    'activation' : "racun",
+    "adv" : True,
+    "adv_epsilon" : 0.03,
+    "architecture": args.model,
+    "batch_racun_scale" : 2,
+    "batch_size" : 256,
+    "dataset": args.dataset,
+    "epochs": 25,
+    "final_div_fac" : 10000,
+    "lr": 1,
+    "lr_scheduler" : True,
+    "momentum": 0.9,
+    "num_workers" : 24,
+    "optimizer" : "SGD",
+    "replace_all" : False,
+    "wd" : 0.0001,
     }
     print(config)
 
