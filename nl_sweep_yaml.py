@@ -232,37 +232,47 @@ class LitAutoEncoder(pl.LightningModule):
             # return loss + advLoss
             
             # all adv train (50%)
-            # pred = self.encoder(x)
-            # pure_loss = nn.functional.cross_entropy(pred, y)
+            logits = self.encoder(x)
+            pure_loss = nn.functional.cross_entropy(logits, y)
+            preds = torch.argmax(logits, dim=1)
+            acc = accuracy(preds, y, num_classes=self.config["num_classes"], task="multiclass")
+            self.log("train_acc", acc)
             
-            # advExample = self.generateAdv(x, y, "PGD", self.config['eps'])
-            # advZ = self.encoder(advExample)
-            # advLoss = nn.functional.cross_entropy(advZ, y)
+            advExample = self.generateAdv(x, y, "PGD", self.config['eps'])
+            advZ = self.encoder(advExample)
+            advLoss = nn.functional.cross_entropy(advZ, y)
+            adv_preds = torch.argmax(advZ, dim=1)
+            robust_acc = accuracy(adv_preds, y, num_classes=self.config["num_classes"], task="multiclass")
+            self.log("train_robust_acc")
             
-            # loss = (pure_loss + advLoss) / 2
+            loss = (pure_loss + advLoss) / 2
+
+            
             
             
             # interpolated adversarial training(IAT)
-            # vanilla loss
+            # vanilla loss with mixup
             # mixup_x, mixup_y_a, mixup_y_b, mixup_lambda = self.mixup_data(x, y)
             # mixup_output = self.encoder(mixup_x)
             # unperturbed_loss = self.mixup_criterion(nn.functional.cross_entropy, mixup_output, mixup_y_a, mixup_y_b, mixup_lambda)
-            pred = self.encoder(x)
-            unperturbed_loss = nn.functional.cross_entropy(pred, y)
+            # no mixup
+            # pred = self.encoder(x)
+            # unperturbed_loss = nn.functional.cross_entropy(pred, y)
             
             # adv loss
-            advExample = self.generateAdv(x, y, "PGD", self.config['eps'])
-            adv_input, adv_y_a, adv_y_b, adv_lam = self.mixup_data(advExample, y)
-            adv_output = self.encoder(adv_input)
-            perturbed_loss = self.mixup_criterion(nn.functional.cross_entropy, adv_output, adv_y_a, adv_y_b, adv_lam)
+            # advExample = self.generateAdv(x, y, "PGD", self.config['eps'])
+            # adv_input, adv_y_a, adv_y_b, adv_lam = self.mixup_data(advExample, y)
+            # adv_output = self.encoder(adv_input)
+            # perturbed_loss = self.mixup_criterion(nn.functional.cross_entropy, adv_output, adv_y_a, adv_y_b, adv_lam)
             
-            loss = (unperturbed_loss + perturbed_loss) / 2
+            # loss = (unperturbed_loss + perturbed_loss) / 2
 
         else:
             z = self.encoder(x)
             loss = nn.functional.cross_entropy(z, y)
             
         self.log("train_loss", loss)
+        
         return loss
 
 
@@ -367,12 +377,12 @@ def choose_dataset(config):
             transforms.ToTensor(),
         ])
             
-        trainset = CIFAR10(root='/data', train=True,
+        trainset = CIFAR10(root='~/data', train=True,
                                                 download=True, transform=train_transform)
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'],
                                                 shuffle=True, num_workers = config['num_workers'])
 
-        testset = CIFAR10(root='/data', train=False,
+        testset = CIFAR10(root='~/data', train=False,
                                             download=True, transform=test_transform)
         testloader = torch.utils.data.DataLoader(testset, batch_size=config['batch_size'],
                                                 shuffle=False, num_workers = config['num_workers'])
@@ -387,8 +397,8 @@ def choose_dataset(config):
             transforms.ToTensor(),
         ])
         
-        trainset = ImageFolder('/data/ImageNet100/train', transform=transform)
-        testset = ImageFolder('/data/ImageNet100/val', transform=transform)
+        trainset = ImageFolder('~/data/ImageNet100/train', transform=transform)
+        testset = ImageFolder('~/data/ImageNet100/val', transform=transform)
         
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'], shuffle=True, num_workers =config['num_workers'])
         testloader = torch.utils.data.DataLoader(testset, batch_size=config['batch_size'], shuffle=False, num_workers =config['num_workers'])
@@ -403,8 +413,8 @@ def choose_dataset(config):
             transforms.ToTensor(),
         ])
 
-        trainset = ImageFolder('/data/ImageNet/2012/ILSVRC2012_img_train', transform=transform)
-        testset = ImageFolder('/data/ImageNet/2012/ILSVRC2012_img_val', transform=transform)
+        trainset = ImageFolder('~/data/ImageNet/2012/ILSVRC2012_img_train', transform=transform)
+        testset = ImageFolder('~/data/ImageNet/2012/ILSVRC2012_img_val', transform=transform)
         
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'], shuffle=True, num_workers =config['num_workers'])
 
@@ -431,12 +441,12 @@ def choose_dataset(config):
             [transforms.ToTensor(),
         ])
 
-        trainset = MNIST(root='/data', train=True,
+        trainset = MNIST(root='~/data', train=True,
                                                 download=True, transform=transform)
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'],
                                                 shuffle=True, num_workers = config['num_workers'])
 
-        testset = MNIST(root='/data', train=False,
+        testset = MNIST(root='~/data', train=False,
                                             download=True, transform=transform)
         testloader = torch.utils.data.DataLoader(testset, batch_size=config['batch_size'],
                                                 shuffle=False, num_workers = config['num_workers'])
@@ -509,7 +519,7 @@ def train_model():
     alpha = f"_a={config.get('alpha')}" if config['activation'] in variable_act else ''
 
     a_dir = '' if alpha=='' else f"/a={config.get('alpha')}"
-    dir_path = f"./ckpt/{config['dataset']}/{'all' if config.get('replaceAll') else 'part'}/{config['optimizer']}/{config['activation']}{a_dir}"
+    dir_path = f"./ckpt/{config['dataset']}/{'all' if config.get('replaceAll') else 'part'}/{config['optimizer']}/{config['activation']}{a_dir}{'/'+str(seed)}"
     file_name = f"{config['activation']}{alpha}{'_ALL' if config.get('replaceAll') else ''}_{config['dataset']}_{config['optimizer']}_"
     # dir_path = f"./ckpt/{config['dataset']}/{'all' if config.get('replaceAll') else 'part'}/{config['optimizer']}/{config['activation']}/{prefix_d}/{dropout_p}"
     # file_name = f"{config['activation']}{alpha}{'_ALL' if config.get('replaceAll') else ''}_{config['dataset']}_{config['optimizer']}_drop={dropout_p}"
