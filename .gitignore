@@ -10,3 +10,6 @@ data
 atk_test.ipynb
 make_model.py
 lightning_logs
+file_iter.py
+*.png
+*.csv
