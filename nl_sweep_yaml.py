@@ -21,7 +21,7 @@ import random
 import torchattacks
 import yaml
 import numpy as np
-from torch.nn import GELU, SiLU, ELU, LeakyReLU, PReLU
+from torch.nn import GELU, SiLU, ELU, LeakyReLU, PReLU, ReLU
 
 
 ##################################################################################
@@ -33,7 +33,9 @@ parser = argparse.ArgumentParser(
 parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
 # parser.add_argument('--project_name', default="Brelu", help='wandb project name')
 # parser.add_argument('--project_name', default="Brelu_ImageNet_A100", help='wandb project name')
-parser.add_argument('--project_name', default="BReLU_CIFAR10_adv_interpolated", help='wandb project name')
+parser.add_argument('--project_name', default="BReLU_CIFAR10_noadv_adam", help='wandb project name')
+# parser.add_argument('--project_name', default="BReLU_CIFAR10_adv_all", help='wandb project name')
+# parser.add_argument('--project_name', default="BReLU_CIFAR10_Dropout", help='wandb project name')
 # parser.add_argument('--project_name', default="Brelu_CIFAR-10", help='wandb project name')
 parser.add_argument('--entity', default='kau-quantum', help='wandb entity name')
 parser.add_argument('--devices', default=0, type=int, help='choose the CUDA(ex: 0, 1, 2, -1)')
@@ -80,6 +82,44 @@ resnet_models = {
     'resnet101' : resnet.resnet101
 }
 
+activation_functions = {
+    'relu' : ReLU,
+    'gelu' : GELU,
+    'silu' : SiLU,
+    'elu' : ELU,
+    'LReLU' : LeakyReLU,
+    'PReLU' : PReLU,
+    'sampling' : SamplingLayer,
+    'brelu' : BReLU,
+    'Vbrelu' : VariableBReLU,
+    'leakyVbrelu' : LeakyVariableBReLU,
+    'PVbrelu' : PVariableBReLU,
+    'leaky_brelu' : Leaky_BReLU,
+    'pbrelu' : PBReLU,
+    'belu' : BELU,
+    'vbelu' : VariableBELU,
+    'SSCA' : SSCA,
+    'SARB' : SARB,
+    'SARBSC' : SARBSC,
+    'BatchWiseSARB' : BatchWiseSARB,
+    'BatchWiseSARBSC' : BatchWiseSARBSC,
+    'ChannelWiseSARB' : ChannelWiseSARB,
+    'ChannelWiseSARBSC' : ChannelWiseSARBSC,
+    'ReLUPlusBRelu' : ReLUPlusBRelu,
+    'MAct' : MeasureAct,
+    'MActSC' : MeasureActSC,
+    'SMAct' : SomeMeasureAct,
+    'SMActSC' : SomeMeasureActSC,
+    'TernaryOut' : TernaryOut,
+    'TernaryOutSC' : TernaryOutSC,
+    'SomeTernaryOut' : SomeTernaryOut,
+    'SomeTernaryOutSC' : SomeTernaryOutSC,
+    'TernaryMul' : TernaryMul,
+    'TernaryMulSC' : TernaryMulSC,
+    'TernaryMulSym' : TernaryMulSym,
+    'TernaryMulSymSC' : TernaryMulSymSC,
+}
+
 def getDataNormalization(dataset):
     if(dataset == 'CIFAR10'):
         return (0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)
@@ -120,42 +160,7 @@ class ModelWrapper(pl.LightningModule):
             model.maxpool = nn.Identity()
 
 
-        activation_functions = {
-            'gelu' : GELU,
-            'silu' : SiLU,
-            'elu' : ELU,
-            'LReLU' : LeakyReLU,
-            'PReLU' : PReLU,
-            'sampling' : SamplingLayer,
-            'brelu' : BReLU,
-            'Vbrelu' : VariableBReLU,
-            'leakyVbrelu' : LeakyVariableBReLU,
-            'PVbrelu' : PVariableBReLU,
-            'leaky_brelu' : Leaky_BReLU,
-            'pbrelu' : PBReLU,
-            'belu' : BELU,
-            'vbelu' : VariableBELU,
-            'SSCA' : SSCA,
-            'SARB' : SARB,
-            'SARBSC' : SARBSC,
-            'BatchWiseSARB' : BatchWiseSARB,
-            'BatchWiseSARBSC' : BatchWiseSARBSC,
-            'ChannelWiseSARB' : ChannelWiseSARB,
-            'ChannelWiseSARBSC' : ChannelWiseSARBSC,
-            'ReLUPlusBRelu' : ReLUPlusBRelu,
-            'MAct' : MeasureAct,
-            'MActSC' : MeasureActSC,
-            'SMAct' : SomeMeasureAct,
-            'SMActSC' : SomeMeasureActSC,
-            'TernaryOut' : TernaryOut,
-            'TernaryOutSC' : TernaryOutSC,
-            'SomeTernaryOut' : SomeTernaryOut,
-            'SomeTernaryOutSC' : SomeTernaryOutSC,
-            'TernaryMul' : TernaryMul,
-            'TernaryMulSC' : TernaryMulSC,
-            'TernaryMulSym' : TernaryMulSym,
-            'TernaryMulSymSC' : TernaryMulSymSC,
-        }
+
         
         if activation == 'relu':
             pass
@@ -218,6 +223,7 @@ class LitAutoEncoder(pl.LightningModule):
         # print(loss)
 
         if(self.config['adv']):
+            # part adv train (20%)
             # advIdx = torch.randint(x.shape[0], (int(x.shape[0] * 0.2),))
             # advExample = self.generateAdv(x[advIdx], y[advIdx])
             # advZ = self.encoder(advExample)
@@ -225,11 +231,26 @@ class LitAutoEncoder(pl.LightningModule):
             # self.log("train_loss", loss + advLoss)
             # return loss + advLoss
             
-            # interpolated adversarial training
-            mixup_x, mixup_y_a, mixup_y_b, mixup_lambda = self.mixup_data(x, y)
-            mixup_output = self.encoder(mixup_x)
-            unperturbed_loss = self.mixup_criterion(nn.functional.cross_entropy, mixup_output, mixup_y_a, mixup_y_b, mixup_lambda)
+            # all adv train (50%)
+            # pred = self.encoder(x)
+            # pure_loss = nn.functional.cross_entropy(pred, y)
             
+            # advExample = self.generateAdv(x, y, "PGD", self.config['eps'])
+            # advZ = self.encoder(advExample)
+            # advLoss = nn.functional.cross_entropy(advZ, y)
+            
+            # loss = (pure_loss + advLoss) / 2
+            
+            
+            # interpolated adversarial training(IAT)
+            # vanilla loss
+            # mixup_x, mixup_y_a, mixup_y_b, mixup_lambda = self.mixup_data(x, y)
+            # mixup_output = self.encoder(mixup_x)
+            # unperturbed_loss = self.mixup_criterion(nn.functional.cross_entropy, mixup_output, mixup_y_a, mixup_y_b, mixup_lambda)
+            pred = self.encoder(x)
+            unperturbed_loss = nn.functional.cross_entropy(pred, y)
+            
+            # adv loss
             advExample = self.generateAdv(x, y, "PGD", self.config['eps'])
             adv_input, adv_y_a, adv_y_b, adv_lam = self.mixup_data(advExample, y)
             adv_output = self.encoder(adv_input)
@@ -346,12 +367,12 @@ def choose_dataset(config):
             transforms.ToTensor(),
         ])
             
-        trainset = CIFAR10(root='~/data', train=True,
+        trainset = CIFAR10(root='/data', train=True,
                                                 download=True, transform=train_transform)
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'],
                                                 shuffle=True, num_workers = config['num_workers'])
 
-        testset = CIFAR10(root='~/data', train=False,
+        testset = CIFAR10(root='/data', train=False,
                                             download=True, transform=test_transform)
         testloader = torch.utils.data.DataLoader(testset, batch_size=config['batch_size'],
                                                 shuffle=False, num_workers = config['num_workers'])
@@ -366,8 +387,8 @@ def choose_dataset(config):
             transforms.ToTensor(),
         ])
         
-        trainset = ImageFolder('~/data/ImageNet100/train', transform=transform)
-        testset = ImageFolder('~/data/ImageNet100/val', transform=transform)
+        trainset = ImageFolder('/data/ImageNet100/train', transform=transform)
+        testset = ImageFolder('/data/ImageNet100/val', transform=transform)
         
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'], shuffle=True, num_workers =config['num_workers'])
         testloader = torch.utils.data.DataLoader(testset, batch_size=config['batch_size'], shuffle=False, num_workers =config['num_workers'])
@@ -399,7 +420,7 @@ def choose_dataset(config):
             transforms.ToTensor(),
 
         ])
-        data_raw = ImageFolder('~/data/tiny-imagenet-200/train', transform=transform)
+        data_raw = ImageFolder('/data/tiny-imagenet-200/train', transform=transform)
         trainset, testset = torch.utils.data.random_split(data_raw, [0.9, 0.1])
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'], shuffle=True, num_workers =config['num_workers'])
         testloader = torch.utils.data.DataLoader(testset, batch_size=config['batch_size'], shuffle=False, num_workers =config['num_workers'])
@@ -410,12 +431,12 @@ def choose_dataset(config):
             [transforms.ToTensor(),
         ])
 
-        trainset = MNIST(root='~/data', train=True,
+        trainset = MNIST(root='/data', train=True,
                                                 download=True, transform=transform)
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'],
                                                 shuffle=True, num_workers = config['num_workers'])
 
-        testset = MNIST(root='~/data', train=False,
+        testset = MNIST(root='/data', train=False,
                                             download=True, transform=transform)
         testloader = torch.utils.data.DataLoader(testset, batch_size=config['batch_size'],
                                                 shuffle=False, num_workers = config['num_workers'])
@@ -423,6 +444,17 @@ def choose_dataset(config):
     
     return data
 
+
+# def append_dropout(model, act, rate = 0.5, front = False):
+#     for name, module in model.named_children():
+#         if len(list(module.children())) > 0:
+#             append_dropout(module, act, rate, front)
+#         if isinstance(module, act):
+#             if front:
+#                 dropout_relu = nn.Sequential(nn.Dropout2d(p = rate, inplace=False), module)
+#             else: 
+#                 dropout_relu = nn.Sequential(module, nn.Dropout2d(p = rate, inplace=False))
+#             setattr(model, name, dropout_relu)
 
 
 def train_model():
@@ -439,6 +471,20 @@ def train_model():
     name_postfix = config['activation'] + rpa + '-' + config['optimizer']
     adver = "-adv" + 'eps:' + str(config.get('eps')) if config.get('adv') else ''
     
+    
+    # dropout 관련
+    # d_first = config.get('front')
+    # prefix_d = "front" if d_first else "back"
+    # dropout_p = config.get('dropout')
+    # dropout_p = dropout_p if dropout_p is not None else 0
+    
+    # if dropout_p != 0:
+    #     append_dropout(model=modified_resnet_encoder, act=activation_functions[config['activation']],
+    #                    rate=dropout_p, front=d_first)
+    #     print("\n\nAfter append Dropout\n")
+    #     print(modified_resnet_encoder)
+    #     print("\n")
+    
     # name = config["dataset"] + "-" + config["architecture"] + "-" + name_postfix + "-" + config.optimizer + " lr:" + str(round(config.lr, 4)) + adver
     name = config["dataset"] + "-" + config["architecture"] + "-" + name_postfix + adver
     run.name = name
@@ -452,6 +498,9 @@ def train_model():
 
     modified_resnet_encoder = LitAutoEncoder(config)
 
+    
+
+
     wandb_logger.watch(modified_resnet_encoder, log="all")
 
     # file_name = config['activation'] + str(round(config.get('alpha'), 3))
@@ -462,6 +511,8 @@ def train_model():
     a_dir = '' if alpha=='' else f"/a={config.get('alpha')}"
     dir_path = f"./ckpt/{config['dataset']}/{'all' if config.get('replaceAll') else 'part'}/{config['optimizer']}/{config['activation']}{a_dir}"
     file_name = f"{config['activation']}{alpha}{'_ALL' if config.get('replaceAll') else ''}_{config['dataset']}_{config['optimizer']}_"
+    # dir_path = f"./ckpt/{config['dataset']}/{'all' if config.get('replaceAll') else 'part'}/{config['optimizer']}/{config['activation']}/{prefix_d}/{dropout_p}"
+    # file_name = f"{config['activation']}{alpha}{'_ALL' if config.get('replaceAll') else ''}_{config['dataset']}_{config['optimizer']}_drop={dropout_p}"
     
     callbacks = []
     lr_monitor = LearningRateMonitor(logging_interval='step')

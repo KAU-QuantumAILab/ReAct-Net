@@ -7,6 +7,7 @@ import os
 
 torch.set_float32_matmul_precision('high')
 seed_everything(42)
+gpu_num = [3]
 
 # config 파일 생성용
 def make_config(**kwargs):
@@ -40,7 +41,7 @@ def fgsm_test(name, opt, ckpt, replace, alpha):
 
     model = load_model(ckpt=ckpt, config=cfg)
     _, valloader = choose_dataset(config=cfg)
-    trainer = pl.Trainer(inference_mode=False, devices = [0])
+    trainer = pl.Trainer(inference_mode=False, devices = gpu_num)
     result = trainer.validate(model, valloader)
     return result[0]
 
@@ -50,7 +51,7 @@ def pgd_test(name, opt, ckpt, replace, alpha, steps = 3):
 
     model = load_model(ckpt=ckpt, config=cfg)
     _, valloader = choose_dataset(config=cfg)
-    trainer = pl.Trainer(inference_mode=False, devices = [0])
+    trainer = pl.Trainer(inference_mode=False, devices = gpu_num)
     result = trainer.validate(model, valloader)
     return result[0]
 
@@ -60,7 +61,7 @@ def randomDotAttackTest(act, opt, ckpt, replace, alpha, temp_dict, log_wandb, st
     cfg = make_config(act=act, opt=opt, replaceALL=replace, alpha=alpha, adv=False, atk_type='RIA')
     model = load_model(ckpt=ckpt, config=cfg)
     print(f"\n Act:{act}, alpha={alpha}, opt:{opt}, , replaceALL:{replace}\n")
-    trainer = pl.Trainer(devices = [0])
+    trainer = pl.Trainer(devices = gpu_num)
     _, valloader = choose_dataset(cfg)
     # num_data = len(valloader.dataset)
     for i in range(0, steps + 1):
@@ -167,10 +168,10 @@ def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
 
 if __name__=='__main__':
     all_test(
-        ckpt_root_dir = './ckpt/CIFAR10_interpolated_NOT',
+        ckpt_root_dir = './ckpt/CIFAR10_noAdv',
         fgsm = True,
-        pgd = True, pgd_step = 20,
+        pgd = True, pgd_step = 10,
         rda = True, rda_step = 100,
-        log_wandb = True, project_name = 'adv_train_attack_test',
-        csv_file_name = 'adv_train_attack_test.csv'
+        log_wandb = True, project_name = 'noAdv_attack_test',
+        csv_file_name = 'noAdv_attack_test.csv'
     )
