@@ -7,7 +7,7 @@ import os
 
 torch.set_float32_matmul_precision('high')
 seed_everything(42)
-gpu_num = [3]
+gpu_num = [0]
 
 # config 파일 생성용
 def make_config(**kwargs):
@@ -19,6 +19,7 @@ def make_config(**kwargs):
     steps = kwargs.get('steps')
     eps = kwargs.get('eps')
     opt = kwargs.get('opt')
+    seed = kwargs.get('seed')
     cfg = {
         'architecture' : 'resnet18',
         'optimizer' : opt,
@@ -31,13 +32,14 @@ def make_config(**kwargs):
         'eps' : eps,
         'alpha' : alpha,
         'atk' : atk_type,
-        'steps' : steps
+        'steps' : steps,
+        'seed' : seed
     }
     return cfg
 
 # fgsm attack test 함수
-def fgsm_test(name, opt, ckpt, replace, alpha):
-    cfg = make_config(act=name, opt = opt, replaceALL=replace, alpha=alpha, adv=True, atk_type='FGSM', eps=0.0314)
+def fgsm_test(name, opt, ckpt, replace, alpha, seed):
+    cfg = make_config(act=name, opt = opt, replaceALL=replace, alpha=alpha, adv=True, atk_type='FGSM', eps=0.0314, seed=seed)
 
     model = load_model(ckpt=ckpt, config=cfg)
     _, valloader = choose_dataset(config=cfg)
@@ -46,8 +48,8 @@ def fgsm_test(name, opt, ckpt, replace, alpha):
     return result[0]
 
 # pgd attack test 함수
-def pgd_test(name, opt, ckpt, replace, alpha, steps = 3):
-    cfg = make_config(act=name, opt=opt, replaceALL=replace, alpha=alpha, adv=True, atk_type='PGD', steps=steps, eps=0.0314)
+def pgd_test(name, opt, ckpt, replace, alpha, seed, steps = 3):
+    cfg = make_config(act=name, opt=opt, replaceALL=replace, alpha=alpha, adv=True, atk_type='PGD', steps=steps, eps=0.0314, seed=seed)
 
     model = load_model(ckpt=ckpt, config=cfg)
     _, valloader = choose_dataset(config=cfg)
@@ -56,9 +58,9 @@ def pgd_test(name, opt, ckpt, replace, alpha, steps = 3):
     return result[0]
 
 # RDA Attack test 함수
-def randomDotAttackTest(act, opt, ckpt, replace, alpha, temp_dict, log_wandb, steps = 30):
+def randomDotAttackTest(act, opt, ckpt, replace, alpha, temp_dict, log_wandb, seed, steps = 30):
     # load model -> evaluate -> record -> attack -> evaluate (repeat)
-    cfg = make_config(act=act, opt=opt, replaceALL=replace, alpha=alpha, adv=False, atk_type='RIA')
+    cfg = make_config(act=act, opt=opt, replaceALL=replace, alpha=alpha, adv=False, atk_type='RIA', seed=seed)
     model = load_model(ckpt=ckpt, config=cfg)
     print(f"\n Act:{act}, alpha={alpha}, opt:{opt}, , replaceALL:{replace}\n")
     trainer = pl.Trainer(devices = gpu_num)
@@ -101,13 +103,15 @@ def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
             # replaceALL = (replace == 'all') # 전체 교체면 True
             opt = info[4]           # optimizer 정보
             act = info[5]           # activation 정보
+            seed = info[6]
             alpha = info[-1].lstrip('a=') if act in variable else 'NULL'    # a=5 에서 a= 제거
             
             temp_dict['activation'] = act
             temp_dict['alpha'] = alpha
             temp_dict['replace'] = replace
             temp_dict['optimizer'] = opt
-            row_name = f"{act}{'a=' if alpha != 'NULL' else ''}{alpha if alpha != 'NULL' else ''}_{replace}_{opt}"
+            temp_dict['seed'] = seed
+            row_name = f"{act}{'a=' if alpha != 'NULL' else ''}{alpha if alpha != 'NULL' else ''}_{replace}_{opt}_{seed}"
             
             a = float(alpha) if alpha != 'NULL' else None       # config에 쓸 수 있게 문자열에서 숫자로 변경
             # wandb 사용시 저장 위치
@@ -126,7 +130,7 @@ def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
             
             
             if fgsm:
-                fgsm_result = fgsm_test(name=act, opt=opt, ckpt=ckpt_file_path, replace=replaceALL, alpha=a)
+                fgsm_result = fgsm_test(name=act, opt=opt, ckpt=ckpt_file_path, replace=replaceALL, alpha=a, seed=seed)
                 temp_dict['pure_acc'] = fgsm_result['val_acc']
                 temp_dict['FGSM'] = fgsm_result['Robust_acc']
                 if log_wandb:
@@ -139,16 +143,16 @@ def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
             if pgd:
                 for i in pgd_steps:
                     col_name = f"PGD {i}"
-                    pgd_result = pgd_test(name=act, opt=opt, ckpt=ckpt_file_path, replace=replaceALL, alpha=a, steps=i)
+                    pgd_result = pgd_test(name=act, opt=opt, ckpt=ckpt_file_path, replace=replaceALL, alpha=a, steps=i, seed=seed)
                     temp_dict[col_name] = pgd_result['Robust_acc']
                     if log_wandb:
                         wandb.log({"PGD_acc" : pgd_result['Robust_acc'],
                                     "PGD_loss": pgd_result['Robust_loss']})
                         
             if rda:
-                print(f"\n Act:{act}, opt:{opt}, replaceALL:{replaceALL}\n")
+                print(f"\n Act:{act}, opt:{opt}, replaceALL:{replaceALL}, seed:{seed}\n")
                 temp_dict = randomDotAttackTest(act=act, opt=opt, ckpt=ckpt_file_path, replace=replaceALL, 
-                                                alpha=a, temp_dict=temp_dict, log_wandb=log_wandb, steps=rda_step)
+                                                alpha=a, temp_dict=temp_dict, log_wandb=log_wandb, steps=rda_step, seed=seed)
                 
             if log_wandb:
                 wandb.finish()
@@ -168,10 +172,10 @@ def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
 
 if __name__=='__main__':
     all_test(
-        ckpt_root_dir = './ckpt/CIFAR10_noAdv',
+        ckpt_root_dir = './ckpt_seeds_adv50/CIFAR10',
         fgsm = True,
-        pgd = True, pgd_step = 10,
+        pgd = True, pgd_step = 20,
         rda = True, rda_step = 100,
-        log_wandb = True, project_name = 'noAdv_attack_test',
-        csv_file_name = 'noAdv_attack_test.csv'
+        log_wandb = True, project_name = 'Adv50_attack_test_seeds',
+        csv_file_name = 'Adv50_attack_test_seeds.csv'
     )
