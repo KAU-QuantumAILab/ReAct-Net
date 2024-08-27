@@ -33,9 +33,10 @@ parser = argparse.ArgumentParser(
 parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
 # parser.add_argument('--project_name', default="Brelu", help='wandb project name')
 # parser.add_argument('--project_name', default="Brelu_ImageNet_A100", help='wandb project name')
-parser.add_argument('--project_name', default="BReLU_CIFAR10_noadv_adam", help='wandb project name')
+# parser.add_argument('--project_name', default="BReLU_CIFAR10_adv50_seeds", help='wandb project name')
 # parser.add_argument('--project_name', default="BReLU_CIFAR10_adv_all", help='wandb project name')
-# parser.add_argument('--project_name', default="BReLU_CIFAR10_Dropout", help='wandb project name')
+# parser.add_argument('--project_name', default="BReLU_CIFAR10_Dropout_seeds", help='wandb project name')
+parser.add_argument('--project_name', default="BReLU_CIFAR10_IAT_seeds", help='wandb project name')
 # parser.add_argument('--project_name', default="Brelu_CIFAR-10", help='wandb project name')
 parser.add_argument('--entity', default='kau-quantum', help='wandb entity name')
 parser.add_argument('--devices', default=0, type=int, help='choose the CUDA(ex: 0, 1, 2, -1)')
@@ -232,40 +233,40 @@ class LitAutoEncoder(pl.LightningModule):
             # return loss + advLoss
             
             # all adv train (50%)
-            logits = self.encoder(x)
-            pure_loss = nn.functional.cross_entropy(logits, y)
-            preds = torch.argmax(logits, dim=1)
-            acc = accuracy(preds, y, num_classes=self.config["num_classes"], task="multiclass")
-            self.log("train_acc", acc)
+            # logits = self.encoder(x)
+            # pure_loss = nn.functional.cross_entropy(logits, y)
+            # preds = torch.argmax(logits, dim=1)
+            # acc = accuracy(preds, y, num_classes=self.config["num_classes"], task="multiclass")
+            # self.log("train_acc", acc)
             
-            advExample = self.generateAdv(x, y, "PGD", self.config['eps'])
-            advZ = self.encoder(advExample)
-            advLoss = nn.functional.cross_entropy(advZ, y)
-            adv_preds = torch.argmax(advZ, dim=1)
-            robust_acc = accuracy(adv_preds, y, num_classes=self.config["num_classes"], task="multiclass")
-            self.log("train_robust_acc")
+            # advExample = self.generateAdv(x, y, "PGD", self.config['eps'])
+            # advZ = self.encoder(advExample)
+            # advLoss = nn.functional.cross_entropy(advZ, y)
+            # adv_preds = torch.argmax(advZ, dim=1)
+            # robust_acc = accuracy(adv_preds, y, num_classes=self.config["num_classes"], task="multiclass")
+            # self.log("train_robust_acc", robust_acc)
             
-            loss = (pure_loss + advLoss) / 2
+            # loss = (pure_loss + advLoss) / 2
 
             
             
             
             # interpolated adversarial training(IAT)
             # vanilla loss with mixup
-            # mixup_x, mixup_y_a, mixup_y_b, mixup_lambda = self.mixup_data(x, y)
-            # mixup_output = self.encoder(mixup_x)
-            # unperturbed_loss = self.mixup_criterion(nn.functional.cross_entropy, mixup_output, mixup_y_a, mixup_y_b, mixup_lambda)
-            # no mixup
+            mixup_x, mixup_y_a, mixup_y_b, mixup_lambda = self.mixup_data(x, y)
+            mixup_output = self.encoder(mixup_x)
+            unperturbed_loss = self.mixup_criterion(nn.functional.cross_entropy, mixup_output, mixup_y_a, mixup_y_b, mixup_lambda)
+            # vanilla loss with no mixup
             # pred = self.encoder(x)
             # unperturbed_loss = nn.functional.cross_entropy(pred, y)
             
             # adv loss
-            # advExample = self.generateAdv(x, y, "PGD", self.config['eps'])
-            # adv_input, adv_y_a, adv_y_b, adv_lam = self.mixup_data(advExample, y)
-            # adv_output = self.encoder(adv_input)
-            # perturbed_loss = self.mixup_criterion(nn.functional.cross_entropy, adv_output, adv_y_a, adv_y_b, adv_lam)
+            advExample = self.generateAdv(x, y, "PGD", self.config['eps'])
+            adv_input, adv_y_a, adv_y_b, adv_lam = self.mixup_data(advExample, y)
+            adv_output = self.encoder(adv_input)
+            perturbed_loss = self.mixup_criterion(nn.functional.cross_entropy, adv_output, adv_y_a, adv_y_b, adv_lam)
             
-            # loss = (unperturbed_loss + perturbed_loss) / 2
+            loss = (unperturbed_loss + perturbed_loss) / 2
 
         else:
             z = self.encoder(x)
@@ -455,16 +456,16 @@ def choose_dataset(config):
     return data
 
 
-# def append_dropout(model, act, rate = 0.5, front = False):
-#     for name, module in model.named_children():
-#         if len(list(module.children())) > 0:
-#             append_dropout(module, act, rate, front)
-#         if isinstance(module, act):
-#             if front:
-#                 dropout_relu = nn.Sequential(nn.Dropout2d(p = rate, inplace=False), module)
-#             else: 
-#                 dropout_relu = nn.Sequential(module, nn.Dropout2d(p = rate, inplace=False))
-#             setattr(model, name, dropout_relu)
+def append_dropout(model, act, rate = 0.5, front = False):
+    for name, module in model.named_children():
+        if len(list(module.children())) > 0:
+            append_dropout(module, act, rate, front)
+        if isinstance(module, act):
+            if front:
+                dropout_relu = nn.Sequential(nn.Dropout2d(p = rate, inplace=False), module)
+            else: 
+                dropout_relu = nn.Sequential(module, nn.Dropout2d(p = rate, inplace=False))
+            setattr(model, name, dropout_relu)
 
 
 def train_model():
@@ -477,23 +478,10 @@ def train_model():
     wandb.define_metric("val_acc", summary="max")
     wandb.define_metric("Robust_acc", summary="max")
     # name_postfix = "reference" if config['activation'] == 'relu' else "ReAct"
-    rpa = ' All' if config.get('replaceAll') else ''
+    rpa = '-All' if config.get('replaceAll') else ''
     name_postfix = config['activation'] + rpa + '-' + config['optimizer']
     adver = "-adv" + 'eps:' + str(config.get('eps')) if config.get('adv') else ''
     
-    
-    # dropout 관련
-    # d_first = config.get('front')
-    # prefix_d = "front" if d_first else "back"
-    # dropout_p = config.get('dropout')
-    # dropout_p = dropout_p if dropout_p is not None else 0
-    
-    # if dropout_p != 0:
-    #     append_dropout(model=modified_resnet_encoder, act=activation_functions[config['activation']],
-    #                    rate=dropout_p, front=d_first)
-    #     print("\n\nAfter append Dropout\n")
-    #     print(modified_resnet_encoder)
-    #     print("\n")
     
     # name = config["dataset"] + "-" + config["architecture"] + "-" + name_postfix + "-" + config.optimizer + " lr:" + str(round(config.lr, 4)) + adver
     name = config["dataset"] + "-" + config["architecture"] + "-" + name_postfix + adver
@@ -508,7 +496,18 @@ def train_model():
 
     modified_resnet_encoder = LitAutoEncoder(config)
 
+    # dropout 관련
+    # d_first = config.get('front')
+    # prefix_d = "front" if d_first else "back"
+    # dropout_p = config.get('dropout')
+    # dropout_p = dropout_p if dropout_p is not None else 0
     
+    # if dropout_p != 0:
+    #     append_dropout(model=modified_resnet_encoder, act=activation_functions[config['activation']],
+    #                    rate=dropout_p, front=d_first)
+    #     print("\n\nAfter append Dropout\n")
+    #     print(modified_resnet_encoder)
+    #     print("\n")
 
 
     wandb_logger.watch(modified_resnet_encoder, log="all")

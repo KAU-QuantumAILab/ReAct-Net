@@ -305,12 +305,12 @@ def choose_dataset(config):
             transforms.ToTensor(),
         ])
             
-        trainset = CIFAR10(root='/data', train=True,
+        trainset = CIFAR10(root='~/data', train=True,
                                                 download=True, transform=train_transform)
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'],
                                                 shuffle=True, num_workers = config['num_workers'])
 
-        testset = CIFAR10(root='/data', train=False,
+        testset = CIFAR10(root='~/data', train=False,
                                             download=True, transform=test_transform)
         testloader = torch.utils.data.DataLoader(testset, batch_size=config['batch_size'],
                                                 shuffle=False, num_workers = config['num_workers'])
@@ -325,8 +325,8 @@ def choose_dataset(config):
             transforms.ToTensor(),
         ])
         
-        trainset = ImageFolder('/data/ImageNet100/train', transform=transform)
-        testset = ImageFolder('/data/ImageNet100/val', transform=transform)
+        trainset = ImageFolder('~/data/ImageNet100/train', transform=transform)
+        testset = ImageFolder('~/data/ImageNet100/val', transform=transform)
         
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'], shuffle=True, num_workers =config['num_workers'])
         testloader = torch.utils.data.DataLoader(testset, batch_size=config['batch_size'], shuffle=False, num_workers =config['num_workers'])
@@ -341,8 +341,8 @@ def choose_dataset(config):
             transforms.ToTensor(),
         ])
 
-        trainset = ImageFolder('/data/ImageNet/2012/ILSVRC2012_img_train', transform=transform)
-        testset = ImageFolder('/data/ImageNet/2012/ILSVRC2012_img_val', transform=transform)
+        trainset = ImageFolder('~/data/ImageNet/2012/ILSVRC2012_img_train', transform=transform)
+        testset = ImageFolder('~/data/ImageNet/2012/ILSVRC2012_img_val', transform=transform)
         
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'], shuffle=True, num_workers =config['num_workers'])
 
@@ -358,7 +358,7 @@ def choose_dataset(config):
             transforms.ToTensor(),
 
         ])
-        data_raw = ImageFolder('/data/tiny-imagenet-200/train', transform=transform)
+        data_raw = ImageFolder('~/data/tiny-imagenet-200/train', transform=transform)
         trainset, testset = torch.utils.data.random_split(data_raw, [0.9, 0.1])
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'], shuffle=True, num_workers =config['num_workers'])
         testloader = torch.utils.data.DataLoader(testset, batch_size=config['batch_size'], shuffle=False, num_workers =config['num_workers'])
@@ -369,12 +369,12 @@ def choose_dataset(config):
             [transforms.ToTensor(),
         ])
 
-        trainset = MNIST(root='/data', train=True,
+        trainset = MNIST(root='~/data', train=True,
                                                 download=True, transform=transform)
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'],
                                                 shuffle=True, num_workers = config['num_workers'])
 
-        testset = MNIST(root='/data', train=False,
+        testset = MNIST(root='~/data', train=False,
                                             download=True, transform=transform)
         testloader = torch.utils.data.DataLoader(testset, batch_size=config['batch_size'],
                                                 shuffle=False, num_workers = config['num_workers'])
