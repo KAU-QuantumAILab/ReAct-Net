@@ -124,7 +124,8 @@ def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
                             act=act,
                             opt=opt,
                             replaceALL=replaceALL,
-                            adv=True
+                            adv=True,
+                            seed=seed
                         )
                     )
             
