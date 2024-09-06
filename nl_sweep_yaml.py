@@ -33,10 +33,10 @@ parser = argparse.ArgumentParser(
 parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
 # parser.add_argument('--project_name', default="Brelu", help='wandb project name')
 # parser.add_argument('--project_name', default="Brelu_ImageNet_A100", help='wandb project name')
-# parser.add_argument('--project_name', default="BReLU_CIFAR10_adv50_seeds", help='wandb project name')
+parser.add_argument('--project_name', default="VBReLU_CIFAR10_adv50", help='wandb project name')
 # parser.add_argument('--project_name', default="BReLU_CIFAR10_adv_all", help='wandb project name')
 # parser.add_argument('--project_name', default="BReLU_CIFAR10_Dropout_seeds", help='wandb project name')
-parser.add_argument('--project_name', default="BReLU_CIFAR10_IAT_seeds", help='wandb project name')
+# parser.add_argument('--project_name', default="BReLU_CIFAR10_IAT_seeds", help='wandb project name')
 # parser.add_argument('--project_name', default="Brelu_CIFAR-10", help='wandb project name')
 parser.add_argument('--entity', default='kau-quantum', help='wandb entity name')
 parser.add_argument('--devices', default=0, type=int, help='choose the CUDA(ex: 0, 1, 2, -1)')
@@ -232,41 +232,43 @@ class LitAutoEncoder(pl.LightningModule):
             # self.log("train_loss", loss + advLoss)
             # return loss + advLoss
             
+            #########################################################################################
             # all adv train (50%)
-            # logits = self.encoder(x)
-            # pure_loss = nn.functional.cross_entropy(logits, y)
-            # preds = torch.argmax(logits, dim=1)
-            # acc = accuracy(preds, y, num_classes=self.config["num_classes"], task="multiclass")
-            # self.log("train_acc", acc)
+            logits = self.encoder(x)
+            pure_loss = nn.functional.cross_entropy(logits, y)
+            preds = torch.argmax(logits, dim=1)
+            acc = accuracy(preds, y, num_classes=self.config["num_classes"], task="multiclass")
+            self.log("train_acc", acc)
             
-            # advExample = self.generateAdv(x, y, "PGD", self.config['eps'])
-            # advZ = self.encoder(advExample)
-            # advLoss = nn.functional.cross_entropy(advZ, y)
-            # adv_preds = torch.argmax(advZ, dim=1)
-            # robust_acc = accuracy(adv_preds, y, num_classes=self.config["num_classes"], task="multiclass")
-            # self.log("train_robust_acc", robust_acc)
+            advExample = self.generateAdv(x, y, "PGD", self.config['eps'])
+            advZ = self.encoder(advExample)
+            advLoss = nn.functional.cross_entropy(advZ, y)
+            adv_preds = torch.argmax(advZ, dim=1)
+            robust_acc = accuracy(adv_preds, y, num_classes=self.config["num_classes"], task="multiclass")
+            self.log("train_robust_acc", robust_acc)
             
-            # loss = (pure_loss + advLoss) / 2
+            loss = (pure_loss + advLoss) / 2
 
-            
+            ##########################################################################################
             
             
             # interpolated adversarial training(IAT)
             # vanilla loss with mixup
-            mixup_x, mixup_y_a, mixup_y_b, mixup_lambda = self.mixup_data(x, y)
-            mixup_output = self.encoder(mixup_x)
-            unperturbed_loss = self.mixup_criterion(nn.functional.cross_entropy, mixup_output, mixup_y_a, mixup_y_b, mixup_lambda)
+            # mixup_x, mixup_y_a, mixup_y_b, mixup_lambda = self.mixup_data(x, y)
+            # mixup_output = self.encoder(mixup_x)
+            # unperturbed_loss = self.mixup_criterion(nn.functional.cross_entropy, mixup_output, mixup_y_a, mixup_y_b, mixup_lambda)
             # vanilla loss with no mixup
             # pred = self.encoder(x)
             # unperturbed_loss = nn.functional.cross_entropy(pred, y)
             
-            # adv loss
-            advExample = self.generateAdv(x, y, "PGD", self.config['eps'])
-            adv_input, adv_y_a, adv_y_b, adv_lam = self.mixup_data(advExample, y)
-            adv_output = self.encoder(adv_input)
-            perturbed_loss = self.mixup_criterion(nn.functional.cross_entropy, adv_output, adv_y_a, adv_y_b, adv_lam)
+            # # adv loss
+            # advExample = self.generateAdv(x, y, "PGD", self.config['eps'])
+            # adv_input, adv_y_a, adv_y_b, adv_lam = self.mixup_data(advExample, y)
+            # adv_output = self.encoder(adv_input)
+            # perturbed_loss = self.mixup_criterion(nn.functional.cross_entropy, adv_output, adv_y_a, adv_y_b, adv_lam)
             
-            loss = (unperturbed_loss + perturbed_loss) / 2
+            # loss = (unperturbed_loss + perturbed_loss) / 2
+            ###############################################################################################
 
         else:
             z = self.encoder(x)
