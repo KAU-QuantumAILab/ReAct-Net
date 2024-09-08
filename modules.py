@@ -18,7 +18,7 @@ import os
 import argparse
 import random
 # from lightning.pytorch.accelerators import find_usable_cuda_devices
-from torchattacks import FGSM, PGD
+from torchattacks import FGSM, PGD, CW
 import yaml
 import numpy as np
 from torch.nn import GELU, SiLU, ELU, LeakyReLU, PReLU
@@ -231,12 +231,16 @@ class LitAutoEncoder(pl.LightningModule):
             return {"optimizer": optimizer, "monitor": "val_acc"}
     
 
-    def generateAdv(self, x, y, atkType = 'PGD', eps = 0.0314, alpha=0.00784, steps=3):
+    def generateAdv(self, x, y, atkType = 'PGD', eps = 0.0314, alpha=0.00784, steps=7):
         with torch.enable_grad():
             if atkType == 'PGD':
                 atk = PGD(self.encoder, eps=eps, alpha=alpha, steps=steps)
             elif atkType == 'FGSM':
                 atk = FGSM(self.encoder, eps=eps)
+            elif atkType == 'CW':
+                c = self.config.get('c') if self.config.get('c') is not None else 1
+                kappa = self.config.get('kappa') if self.config.get('kappa') is not None else 0
+                atk = CW(self.encoder, c = c, kappa=kappa, steps=steps)
             adv_images = atk(x, y)
         return adv_images
 
