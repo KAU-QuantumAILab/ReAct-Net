@@ -125,7 +125,6 @@ def randomness_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
             temp_dict['seed'] = seed
             temp_dict['from'] = act
             temp_dict['to'] = change
-            row_name = f"{temp_dict['activation']}_{replaceALL}_{opt}_{seed}"
             
             cfg = make_config(
                         act=act,
@@ -144,10 +143,13 @@ def randomness_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
                 target = (ReLU, BReLU) if model.config['activation'] == 'relu' else (BReLU, ReLU)
                 act_count = count_act(model, target[0])
                 for change_count in range(act_count + 1):
-                    cfg['change_reverse'] = rev
-                    cfg['num_change'] = change_count
+                    cfg['change_reverse'] = temp_dict['change_reverse'] = rev
+                    cfg['num_change'] = temp_dict['num_change'] = change_count
                     cfg['from'] = act
                     cfg['to'] = change
+                    
+                    row_name = f"{temp_dict['activation']}=>{temp_dict['to']}:{temp_dict['num_change']}_rev:{temp_dict['change_reverse']}_{opt}_{seed}"
+                    
                     if log_wandb:
                         wandb.init(
                             project=project_name,
