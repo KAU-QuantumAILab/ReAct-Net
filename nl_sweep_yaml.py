@@ -33,7 +33,7 @@ parser = argparse.ArgumentParser(
 parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
 # parser.add_argument('--project_name', default="Brelu", help='wandb project name')
 # parser.add_argument('--project_name', default="Brelu_ImageNet_A100", help='wandb project name')
-parser.add_argument('--project_name', default="VBReLU_CIFAR10_adv50", help='wandb project name')
+# parser.add_argument('--project_name', default="VBReLU_CIFAR10_adv50", help='wandb project name')
 # parser.add_argument('--project_name', default="BReLU_CIFAR10_adv_all", help='wandb project name')
 parser.add_argument('--project_name', default="BReLU_CIFAR10_pgd7_seeds", help='wandb project name')
 # parser.add_argument('--project_name', default="BReLU_CIFAR10_IAT_seeds", help='wandb project name')
@@ -239,11 +239,6 @@ class LitAutoEncoder(pl.LightningModule):
             preds = torch.argmax(logits, dim=1)
             acc = accuracy(preds, y, num_classes=self.config["num_classes"], task="multiclass")
             self.log("train_acc", acc)
-            logits = self.encoder(x)
-            pure_loss = nn.functional.cross_entropy(logits, y)
-            preds = torch.argmax(logits, dim=1)
-            acc = accuracy(preds, y, num_classes=self.config["num_classes"], task="multiclass")
-            self.log("train_acc", acc)
             
             advExample = self.generateAdv(x, y, "PGD", self.config['eps'])
             advZ = self.encoder(advExample)
@@ -251,14 +246,7 @@ class LitAutoEncoder(pl.LightningModule):
             adv_preds = torch.argmax(advZ, dim=1)
             robust_acc = accuracy(adv_preds, y, num_classes=self.config["num_classes"], task="multiclass")
             self.log("train_robust_acc", robust_acc)
-            advExample = self.generateAdv(x, y, "PGD", self.config['eps'])
-            advZ = self.encoder(advExample)
-            advLoss = nn.functional.cross_entropy(advZ, y)
-            adv_preds = torch.argmax(advZ, dim=1)
-            robust_acc = accuracy(adv_preds, y, num_classes=self.config["num_classes"], task="multiclass")
-            self.log("train_robust_acc", robust_acc)
             
-            loss = (pure_loss + advLoss) / 2
             loss = (pure_loss + advLoss) / 2
 
             ##########################################################################################
@@ -278,12 +266,7 @@ class LitAutoEncoder(pl.LightningModule):
             # adv_input, adv_y_a, adv_y_b, adv_lam = self.mixup_data(advExample, y)
             # adv_output = self.encoder(adv_input)
             # perturbed_loss = self.mixup_criterion(nn.functional.cross_entropy, adv_output, adv_y_a, adv_y_b, adv_lam)
-            # # adv loss
-            # advExample = self.generateAdv(x, y, "PGD", self.config['eps'])
-            # adv_input, adv_y_a, adv_y_b, adv_lam = self.mixup_data(advExample, y)
-            # adv_output = self.encoder(adv_input)
-            # perturbed_loss = self.mixup_criterion(nn.functional.cross_entropy, adv_output, adv_y_a, adv_y_b, adv_lam)
-            
+
             # loss = (unperturbed_loss + perturbed_loss) / 2
 
         else:
@@ -416,8 +399,8 @@ def choose_dataset(config):
             transforms.ToTensor(),
         ])
         
-        trainset = ImageFolder('~/data/ImageNet100/train', transform=transform)
-        testset = ImageFolder('~/data/ImageNet100/val', transform=transform)
+        trainset = ImageFolder('/data/ImageNet100/train', transform=transform)
+        testset = ImageFolder('/data/ImageNet100/val', transform=transform)
         
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'], shuffle=True, num_workers =config['num_workers'])
         testloader = torch.utils.data.DataLoader(testset, batch_size=config['batch_size'], shuffle=False, num_workers =config['num_workers'])
@@ -432,8 +415,8 @@ def choose_dataset(config):
             transforms.ToTensor(),
         ])
 
-        trainset = ImageFolder('~/data/ImageNet/2012/ILSVRC2012_img_train', transform=transform)
-        testset = ImageFolder('~/data/ImageNet/2012/ILSVRC2012_img_val', transform=transform)
+        trainset = ImageFolder('/data/ImageNet/2012/ILSVRC2012_img_train', transform=transform)
+        testset = ImageFolder('/data/ImageNet/2012/ILSVRC2012_img_val', transform=transform)
         
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'], shuffle=True, num_workers =config['num_workers'])
 
