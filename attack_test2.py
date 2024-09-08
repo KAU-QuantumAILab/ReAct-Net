@@ -7,7 +7,7 @@ import os
 
 torch.set_float32_matmul_precision('high')
 seed_everything(42)
-gpu_num = [0]
+gpu_num = [1]
 
 # config 파일 생성용
 def make_config(**kwargs):
@@ -20,21 +20,26 @@ def make_config(**kwargs):
     eps = kwargs.get('eps')
     opt = kwargs.get('opt')
     seed = kwargs.get('seed')
+    c = kwargs.get('c')
+    kappa = kwargs.get('kappa')
     cfg = {
         'architecture' : 'resnet18',
         'optimizer' : opt,
         'activation' : act,
         'replaceAll' : replaceAll, 
         'dataset' : 'CIFAR10',
-        'batch_size' : 128,
-        'num_workers' : 8,
+        'batch_size' : 512,
+        'num_workers' : 16,
         'adv' : adv,
         'eps' : eps,
         'alpha' : alpha,
         'atk' : atk_type,
         'steps' : steps,
-        'seed' : seed
+        'seed' : seed,
     }
+    if atk_type == 'CW':
+        cfg['c'] = c
+        cfg['kappa'] = kappa
     return cfg
 
 # fgsm attack test 함수
@@ -81,14 +86,28 @@ def randomDotAttackTest(act, opt, ckpt, replace, alpha, temp_dict, log_wandb, se
     return temp_dict
 
 
+def CW_test(act, opt, ckpt, replace, alpha, seed, c = 1, kappa = 0, steps = 50):
+    cfg = make_config(act=act, opt=opt, replaceALL=replace, alpha=alpha, adv=True, atk_type = 'CW', seed=seed, c=c, kappa=kappa, steps=steps)
+    
+    model = load_model(ckpt=ckpt, config=cfg)
+    _, valloader = choose_dataset(config=cfg)
+    trainer = pl.Trainer(inference_mode=False, devices=gpu_num)
+    result = trainer.validate(model, valloader)
+    return result[0]
+
+
 # 전체 테스트 묶어놓은 함수
 def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated', 
              fgsm = True, pgd = True, pgd_step = 3, rda=True, rda_step = 30,
+             cw = True, cw_c = 1, cw_kappa = 0, cw_step = 50,
              log_wandb = False, project_name='attack_test', csv_file_name = "attak_test.csv"):
     # alpha 있는 함수 분별하기 위한 리스트
     variable = ['Vbrelu', 'leakyVbrelu', 'PVbrelu']
     # pgd attack 범위
-    pgd_steps = range(1, pgd_step+1)
+    if isinstance(pgd_step, int):
+        pgd_steps = range(1, pgd_step+1)
+    elif isinstance(pgd_step, list):
+        pgd_steps = pgd_step
     result_dict = dict()                # 최종 결과 모아놓을 딕셔너리
     
     # 체크포인트 모아놓은 디렉토리 모두 순회
@@ -155,6 +174,15 @@ def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
                 temp_dict = randomDotAttackTest(act=act, opt=opt, ckpt=ckpt_file_path, replace=replaceALL, 
                                                 alpha=a, temp_dict=temp_dict, log_wandb=log_wandb, steps=rda_step, seed=seed)
                 
+            if cw:
+                cw_result = CW_test(act=act, opt=opt, ckpt=ckpt_file_path, replace=replaceALL, alpha=alpha,
+                                    seed=seed, c = cw_c, kappa=cw_kappa, steps=cw_step)
+                temp_dict['cw_acc'] = cw_result['Robust_acc']
+                if log_wandb:
+                    wandb.log({'CW_acc': cw_result['Robust_acc'],
+                               'CW_loss' : cw_result['Robust_loss']})
+                
+            
             if log_wandb:
                 wandb.finish()
             
@@ -172,11 +200,14 @@ def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
 
 
 if __name__=='__main__':
+    pgd_step = list(range(1, 10)) + list(range(10, 101, 10))
     all_test(
-        ckpt_root_dir = './ckpt_seeds_adv50/CIFAR10',
+        ckpt_root_dir = './ckpt_pgd7/CIFAR10',
         fgsm = True,
-        pgd = True, pgd_step = 20,
-        rda = True, rda_step = 100,
-        log_wandb = True, project_name = 'Adv50_attack_test_seeds',
-        csv_file_name = 'Adv50_attack_test_seeds.csv'
+        pgd = True, pgd_step = pgd_step,
+        rda = False, rda_step = 100,
+        cw=True, cw_c= 1, cw_kappa = 0, cw_step = 40,
+        log_wandb = True, project_name = 'Adv50_pgd7_attack_test',
+        csv_file_name = 'Adv50_pgd7_attack_test.csv'
     )
+    # print(list(range(1, 10)) + list(range(10, 101, 10)))
