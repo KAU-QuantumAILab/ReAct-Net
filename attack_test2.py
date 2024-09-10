@@ -4,6 +4,7 @@ import torch
 import pandas as pd
 import wandb
 import os
+from setproctitle import setproctitle
 
 torch.set_float32_matmul_precision('high')
 seed_everything(42)
@@ -109,10 +110,21 @@ def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
     elif isinstance(pgd_step, list):
         pgd_steps = pgd_step
     result_dict = dict()                # 최종 결과 모아놓을 딕셔너리
+
+    runs = 0
+    now = 0
+    for (root, directories, files) in os.walk(ckpt_root_dir):
+        for file in files:
+            runs += 1
+    
     
     # 체크포인트 모아놓은 디렉토리 모두 순회
     for (root, directories, files) in os.walk(ckpt_root_dir):
         for file in files:
+            now += 1
+            setproctitle(f"{now} / {runs} {now / runs * 100:.2f} %: attack testing")
+
+
             temp_dict = dict()          # 해당 체크포인트 결과 모아놓을 딕셔너리
             
             ckpt_file_path = os.path.join(root, file)       # 체크포인트 파일 경로
@@ -179,6 +191,9 @@ def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
                                     seed=seed, c = cw_c, kappa=cw_kappa, steps=cw_step)
                 temp_dict['cw_acc'] = cw_result['Robust_acc']
                 if log_wandb:
+                    wandb.config['cw_c'] = cw_c
+                    wandb.config['cw_kappa'] = cw_kappa
+                    wandb.config['cw_step'] = cw_step
                     wandb.log({'CW_acc': cw_result['Robust_acc'],
                                'CW_loss' : cw_result['Robust_loss']})
                 
@@ -200,14 +215,15 @@ def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
 
 
 if __name__=='__main__':
-    pgd_step = list(range(1, 10)) + list(range(10, 101, 10))
+    # pgd_step = list(range(1, 10)) + list(range(10, 101, 10))
+    pgd_step = 7
     all_test(
-        ckpt_root_dir = './ckpt_pgd7/CIFAR10',
-        fgsm = True,
+        ckpt_root_dir = './ckpt_pgd7_re/CIFAR10',
+        fgsm = False,
         pgd = True, pgd_step = pgd_step,
         rda = False, rda_step = 100,
-        cw=True, cw_c= 1, cw_kappa = 0, cw_step = 40,
-        log_wandb = True, project_name = 'Adv50_pgd7_attack_test',
-        csv_file_name = 'Adv50_pgd7_attack_test.csv'
+        cw=False, cw_c= 100, cw_kappa = 0, cw_step = 40,
+        log_wandb = False, project_name = 'Adv50_pgd7_CWc100_test',
+        csv_file_name = 'Adv50_pgd7_re_test.csv'
     )
     # print(list(range(1, 10)) + list(range(10, 101, 10)))
