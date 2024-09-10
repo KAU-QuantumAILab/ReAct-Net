@@ -25,6 +25,103 @@ from torch.nn import GELU, SiLU, ELU, LeakyReLU, PReLU
 from torch.utils.data import Dataset, DataLoader, Subset
 
 
+# class AdversarialDataset(Dataset):
+#     def __init__(self, dataset, attack):
+#         self.dataset = dataset
+#         self.attack = attack
+        
+#     def __len__(self):
+#         return len(self.dataset)
+    
+#     def __getitem__(self, idx):
+#         # original data
+#         img, label = self.dataset[idx]
+#         label = torch.tensor(label).unsqueeze(0)
+#         if len(img.shape) == 3:  # (C, H, W) -> (1, C, H, W)
+#             img = img.unsqueeze(0)
+#         return self.attack(img, label), label
+
+class AdversarialDataLoader:
+    def __init__(self, dataloader, attack):
+        """
+        dataloader: 원본 데이터셋의 DataLoader
+        attack: 적용할 공격
+        device: GPU 또는 CPU
+        """
+        self.dataloader = dataloader
+        self.attack = attack
+
+    def __iter__(self):
+        """
+        DataLoader의 iterator를 사용하여 배치를 처리
+        """
+        for imgs, labels in self.dataloader:
+            imgs.requires_grad_()
+            with torch.enable_grad():  # gradient 활성화
+                adv_imgs = self.attack(imgs, labels)
+            
+            # 공격된 이미지와 원본 라벨 반환
+            yield adv_imgs, labels
+
+    def __len__(self):
+        """
+        DataLoader의 크기를 반환
+        """
+        return len(self.dataloader)
+
+
+# validation set만 취급
+def getAdvData(model, atkConfig, dataset, batch_size, num_workers):
+    if dataset == "CIFAR10":
+        test_transform = transforms.Compose(
+            [
+                transforms.ToTensor(),
+            ])
+        raw = CIFAR10(root='~/data', train=False, download=True, transform=test_transform)
+        raw_dataloader = DataLoader(raw, batch_size=batch_size, num_workers=num_workers)
+    
+    elif dataset == "ImageNet100":
+        transform = transforms.Compose([
+            transforms.Resize((256, 256)),
+            transforms.CenterCrop((224,224)),
+            transforms.ToTensor(),
+        ])
+        raw = ImageFolder('~/data/ImageNet100/val', transform=transform)
+        raw_dataloader = DataLoader(raw, batch_size=batch_size, num_workers=num_workers)
+        
+    elif dataset == "ImageNet":
+        transform = transforms.Compose([
+            transforms.Resize((256, 256)),
+            transforms.CenterCrop((224,224)),
+            transforms.ToTensor(),
+        ])
+        raw = ImageFolder('~/data/ImageNet/2012/ILSVRC2012_img_val', transform=transform)
+        raw_dataloader = DataLoader(raw, batch_size=batch_size, num_workers=num_workers)
+        
+    if atkConfig['atk'] == "FGSM":
+        eps = atkConfig.get('eps') if atkConfig.get('eps') is not None else 8 / 255
+        attack = FGSM(model, eps)
+    
+    elif atkConfig['atk'] == "PGD":
+        eps = atkConfig.get('eps') if atkConfig.get('eps') is not None else 8 / 255
+        alpha = atkConfig.get('alpha') if atkConfig.get('alpha') is not None else 2 / 255
+        steps = atkConfig.get('steps') if atkConfig.get('steps') is not None else 7
+        attack = PGD(model, eps, alpha, steps)
+    
+    elif atkConfig['atk'] == "CW":
+        c = atkConfig.get('c') if atkConfig.get('c') is not None else 1
+        kappa = atkConfig.get('kappa') if atkConfig.get('kappa') is not None else 0
+        steps = atkConfig.get('steps') if atkConfig.get('steps') is not None else 50
+        lr = atkConfig.get('lr') if atkConfig.get('lr') is not None else 0.01
+        attack = CW(model, c, kappa, steps, lr)
+        
+    # adv_dataset = AdversarialDataset(raw, attack)
+    adv_dataloader = AdversarialDataLoader(raw_dataloader, attack)
+    # return DataLoader(adv_dataset, batch_size=batch_size, num_workers=num_workers)
+    return adv_dataloader
+    
+        
+
 def seed_everything(seed:int = 1004):
     random.seed(seed)
     np.random.seed(seed)
@@ -247,7 +344,7 @@ class LitAutoEncoder(pl.LightningModule):
 
     def evaluateRobust(self, x, y):
         atkType = self.config.get('atk') if self.config.get('atk') is not None else 'PGD'
-        atk_step = self.config.get('steps') if self.config.get('steps') is not None else 3
+        atk_step = self.config.get('steps') if self.config.get('steps') is not None else 7
         adv_images = self.generateAdv(x=x, y=y, atkType=atkType, eps = self.config['eps'], steps=atk_step)
         logits = self.encoder(adv_images)
         loss = nn.functional.cross_entropy(logits, y)
@@ -388,8 +485,8 @@ def choose_dataset(config):
 
 
 
-def load_model(ckpt, config):
-    model = LitAutoEncoder.load_from_checkpoint(checkpoint_path=ckpt, config=config)
+def load_model(ckpt, config, map_location = None):
+    model = LitAutoEncoder.load_from_checkpoint(checkpoint_path=ckpt, config=config, map_location=map_location)
     return model
 
 
@@ -459,31 +556,3 @@ def onePixelAttackWithSubset(loader, idx):
     return DataLoader(subset, batch_size=loader.batch_size, shuffle=False, num_workers=loader.num_workers)
     
 
-
-# def test():
-#     data_config = {
-#         "dataset" : "CIFAR10",
-#         "batch_size" : 1,
-#         "num_workers" : 1
-#     }
-
-#     _, valloader = choose_dataset(data_config)
-    
-    
-#     im = ToPILImage()
-
-#     imgs = []
-
-#     for i in range(0, 5):
-#         sample = next(iter(valloader))[0][0]
-#         imgs.append(im(sample))
-#         print(f"{i} attack image append")
-#         valloader = ltol(valloader)
-
-#         print(f"{i}th loop end\n")
-        
-        
-#     for img in imgs:
-#         plt.imshow(img)
-#         plt.axis('off')  # 축 제거 (선택 사항)
-#         plt.show()
