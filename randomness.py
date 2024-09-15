@@ -5,11 +5,13 @@ import lightning.pytorch as pl
 import os, wandb
 from torch.nn import ReLU
 from models import BReLU
+from setproctitle import setproctitle
 
 
 torch.set_float32_matmul_precision('high')
 seed_everything(42)
-gpu_num = [1]
+gpu_num = [2]
+map_location = 'cuda:2'
 
 # config 파일 생성용
 def make_config(**kwargs):
@@ -99,16 +101,27 @@ def count_act(model, target_class):
 
 
 def randomness_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated', 
-             fgsm = True, pgd = True, pgd_step = 3,
+             fgsm = True, pgd = True, pgd_step = 7,
              log_wandb = False, project_name='attack_test', csv_file_name = "attak_test.csv"):
     
     pgd_steps = range(1, pgd_step + 1)
     result_dict = dict()
     reverse = [False, True]
     
+    runs = 0
+    now = 0
+    for (root, directories, files) in os.walk(ckpt_root_dir):
+        for file in files:
+            runs += 1
+    
+    
     for (root, directoriesm, files) in os.walk(ckpt_root_dir):
         for file in files:
-            temp_dict = dict()
+            now += 1
+            setproctitle(f"{now} / {runs} {now / runs * 100:.2f} %: change attack testing")
+            
+            
+            
             
             ckpt_file_path = os.path.join(root, file)
             
@@ -118,13 +131,7 @@ def randomness_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
             act = info[5]
             seed = info[6]
             
-            change = 'relu' if act == 'brelu' else 'brelu'
-            temp_dict['activation'] = f"{act} => {change}"
-            temp_dict['replaceALL'] = replaceALL
-            temp_dict['optimizer'] = opt
-            temp_dict['seed'] = seed
-            temp_dict['from'] = act
-            temp_dict['to'] = change
+            
             
             cfg = make_config(
                         act=act,
@@ -139,16 +146,26 @@ def randomness_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
             _, valloader = choose_dataset(cfg)
             trainer = pl.Trainer(inference_mode=False, devices=gpu_num)
             for rev in reverse:
-                model = load_model(ckpt=ckpt_file_path, config=cfg)
+                model = load_model(ckpt=ckpt_file_path, config=cfg, map_location=map_location)
                 target = (ReLU, BReLU) if model.config['activation'] == 'relu' else (BReLU, ReLU)
                 act_count = count_act(model, target[0])
                 for change_count in range(act_count + 1):
+                    temp_dict = dict()
+                    
+                    change = 'relu' if act == 'brelu' else 'brelu'
+                    temp_dict['activation'] = f"{act} => {change}"
+                    temp_dict['replaceALL'] = replaceALL
+                    temp_dict['optimizer'] = opt
+                    temp_dict['seed'] = seed
+                    temp_dict['from'] = act
+                    temp_dict['to'] = change
+                    
                     cfg['change_reverse'] = temp_dict['change_reverse'] = rev
                     cfg['num_change'] = temp_dict['num_change'] = change_count
                     cfg['from'] = act
                     cfg['to'] = change
                     
-                    row_name = f"{temp_dict['activation']}=>{temp_dict['to']}:{temp_dict['num_change']}_rev:{temp_dict['change_reverse']}_{opt}_{seed}"
+                    row_name = f"{temp_dict['activation']}:{temp_dict['num_change']}_rev:{temp_dict['change_reverse']}_{opt}_{seed}"
                     
                     if log_wandb:
                         wandb.init(
@@ -207,9 +224,9 @@ def randomness_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
 
 if __name__=='__main__':
     randomness_test(
-        ckpt_root_dir = './ckpt/CIFAR10',
+        ckpt_root_dir = './ckpt_pgd7_rb/CIFAR10',
         fgsm = True,
         pgd = True, pgd_step = 20,
-        log_wandb = True, project_name = 'relu_Brelu_change_slow',
-        csv_file_name = 'relu_Brelu_change_slow.csv'
+        log_wandb = True, project_name = 'relu_Brelu_change_pgd72',
+        csv_file_name = 'relu_Brelu_change_pgd72.csv'
     )
