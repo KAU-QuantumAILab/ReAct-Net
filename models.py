@@ -5,6 +5,16 @@ from torch import nn
 import torch.nn.functional as F
 from torch.nn.parameter import Parameter
 
+
+class CustomReLU(pl.LightningModule):
+    def __init__(self, threshold = 0):
+        super(CustomReLU, self).__init__()
+        self.threshold = threshold
+        
+    def forward(self, x):
+        return torch.where(x >= self.threshold, x, torch.zeros_like(x))
+
+
 class SamplingLayer(pl.LightningModule):
     def __init__(self, hidden_feature=None):
         super(SamplingLayer, self).__init__()
