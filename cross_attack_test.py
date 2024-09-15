@@ -67,16 +67,16 @@ trainer.validate(lrelu_model, adv_example)
 
 
 # brelu -> brelu : 61.7%
-# brelu -> relu : 71.1%
+# brelu -> ReLU : 71.1%
 # brelu -> LReLU: 71.5%
 
-# relu -> relu : 46.3%
-# relu -> brelu : 64.5%
-# relu -> LReLU : 63.1%
+# ReLU -> ReLU : 46.3%
+# ReLU -> brelu : 64.5%
+# ReLU -> LReLU : 63.1%
 
 #LReLU -> LReLU : 46.5%
 #LReLU -> BReLU : 62.7%
-# lrelu -> relu : 62.1%
+#LReLU -> ReLU : 62.1%
 
 # 다른 모델로 adv_example을 생성하면 정확도가 높아짐 -> 당연함, 공격 대상이 다르니까
 # 가지고 있는 act들 모두 비교하는게 좋을 듯
