@@ -220,12 +220,19 @@ class ModelWrapper(pl.LightningModule):
             pass
         
         elif activation == 'Vbrelu' or activation == 'leakyVbrelu' or activation == 'PVbrelu' or activation == 'vbelu':
+            act = activation_functions[self.config['activation']]
+            alpha = self.config.get('alpha')
+
+            if self.config.get('replaceAll'): model.relu = act(alpha=alpha)
             for name,child in model.named_children():
                 if(isinstance(child, nn.Sequential)):
                     for sub_name, sub_child in child.named_children():
                         sub_child.configure_react(activation_functions[self.config['activation']], replaceAll=self.config.get('replaceAll'), alpha=self.config.get('alpha'))
         
         else:
+            act = activation_functions[self.config['activation']]
+
+            if self.config.get('replaceAll'): model.relu = act()
             for name,child in model.named_children():
                 if(isinstance(child, nn.Sequential)):
                     for sub_name, sub_child in child.named_children():
