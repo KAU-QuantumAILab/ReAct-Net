@@ -8,7 +8,8 @@ from setproctitle import setproctitle
 
 torch.set_float32_matmul_precision('high')
 seed_everything(42)
-gpu_num = [1]
+gpu_num = [2]
+map_location = 'cuda:2'
 
 # config 파일 생성용
 def make_config(**kwargs):
