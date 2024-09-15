@@ -35,7 +35,7 @@ parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
 # parser.add_argument('--project_name', default="Brelu_ImageNet_A100", help='wandb project name')
 # parser.add_argument('--project_name', default="VBReLU_CIFAR10_adv50", help='wandb project name')
 # parser.add_argument('--project_name', default="BReLU_CIFAR10_adv_all", help='wandb project name')
-parser.add_argument('--project_name', default="BReLU_CIFAR10_pgd7_seeds", help='wandb project name')
+parser.add_argument('--project_name', default="BReLU_ImageNet100_pgd7", help='wandb project name')
 # parser.add_argument('--project_name', default="BReLU_CIFAR10_IAT_seeds", help='wandb project name')
 # parser.add_argument('--project_name', default="Brelu_CIFAR-10", help='wandb project name')
 parser.add_argument('--entity', default='kau-quantum', help='wandb entity name')
@@ -167,17 +167,23 @@ class ModelWrapper(pl.LightningModule):
             pass
         
         elif activation == 'Vbrelu' or activation == 'leakyVbrelu' or activation == 'PVbrelu' or activation == 'vbelu':
+            act = activation_functions[self.config['activation']]
+            alpha = self.config.get('alpha')
+
+            if self.config.get('replaceAll'): model.relu = act(alpha=alpha)
             for name,child in model.named_children():
                 if(isinstance(child, nn.Sequential)):
                     for sub_name, sub_child in child.named_children():
                         sub_child.configure_react(activation_functions[self.config['activation']], replaceAll=self.config.get('replaceAll'), alpha=self.config.get('alpha'))
         
         else:
+            act = activation_functions[self.config['activation']]
+
+            if self.config.get('replaceAll'): model.relu = act()
             for name,child in model.named_children():
                 if(isinstance(child, nn.Sequential)):
                     for sub_name, sub_child in child.named_children():
                         sub_child.configure_react(activation_functions[self.config['activation']], replaceAll=self.config.get('replaceAll'))
-        
         
         return model
 
@@ -238,7 +244,8 @@ class LitAutoEncoder(pl.LightningModule):
             pure_loss = nn.functional.cross_entropy(logits, y)
             preds = torch.argmax(logits, dim=1)
             acc = accuracy(preds, y, num_classes=self.config["num_classes"], task="multiclass")
-            self.log("train_acc", acc)
+            self.log("train_clean_acc", acc)
+            self.log("train_clean_loss", pure_loss)
             
             advExample = self.generateAdv(x, y, "PGD", self.config['eps'])
             advZ = self.encoder(advExample)
@@ -246,6 +253,7 @@ class LitAutoEncoder(pl.LightningModule):
             adv_preds = torch.argmax(advZ, dim=1)
             robust_acc = accuracy(adv_preds, y, num_classes=self.config["num_classes"], task="multiclass")
             self.log("train_robust_acc", robust_acc)
+            self.log("train_robust_loss", advLoss)
             
             loss = (pure_loss + advLoss) / 2
 
@@ -338,9 +346,11 @@ class LitAutoEncoder(pl.LightningModule):
     def evaluateRobust(self, x, y):
         adv_images = self.generateAdv(x, y, "PGD", self.config['eps'])
         logits = self.encoder(adv_images)
+        loss = nn.functional.cross_entropy(logits, y)
         preds = torch.argmax(logits, dim=1)
         acc = accuracy(preds, y, num_classes=self.config["num_classes"], task="multiclass")
         self.log("Robust_acc", acc, prog_bar=True, sync_dist=True)
+        self.log("Robust_loss", loss)
 
 
     def evaluate(self, batch, stage=None):
@@ -557,7 +567,7 @@ def train_model():
 
 
 def main():
-    setproctitle('pgd7 adv train')
+    setproctitle('pgd7 adv train (jh)')
     resume = sweep_config.get('sweep_id')
     sweep_id = resume if resume else wandb.sweep(sweep_config, project=project_name)
     # sweep_id = "gt3qp3cj"
