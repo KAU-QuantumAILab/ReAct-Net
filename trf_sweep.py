@@ -26,7 +26,7 @@ parser = argparse.ArgumentParser(
     """
 )
 parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
-parser.add_argument('--project_name', default="VBReLU_CIFAR10_random_test", help='wandb project name')
+parser.add_argument('--project_name', default="transformer_test", help='wandb project name')
 parser.add_argument('--entity', default='kau-quantum', help='wandb entity name')
 parser.add_argument('--devices', default=0, type=int, help='choose the CUDA(ex: 0, 1, 2, -1)')
 
@@ -154,26 +154,28 @@ def choose_dataset(config):
 class TransformerClassifier(pl.LightningModule):
     def __init__(self, config):
         super(TransformerClassifier, self).__init__()
-        self.save_hyperparameters()
+        
         self.config = config
+        img_size = 32 if self.config['dataset'] == "CIFAR10" else 224
 
         # Select the transformer model
         if self.config["architecture"] == 'vit':
             # self.model = vit_b_16(weights=ViT_B_16_Weights.IMAGENET1K_V1)  # Use weights
-            self.model = vit_b_16(weights=None)  # No pretrained weights
+            self.model = vit_b_16(weights=None, image_size=img_size)  # No pretrained weights
             self.model.heads.head = nn.Linear(self.model.heads.head.in_features, self.config.num_classes)  # Correct head layer
         elif self.config["architecture"] == 'swin':
             # self.model = swin_t(weights=Swin_T_Weights.IMAGENET1K_V1)
             self.model = swin_t(weights=None)  # No pretrained weights
             self.model.head = nn.Linear(self.model.head.in_features, self.config.num_classes)
-        elif self.config["architecture"] == 'maxvit':
+        elif self.config["architecture"] == 'maxvit': # 포기 크기 고칠 시간 없음 (vit, swin만)
             # self.model = maxvit_t(weights=MaxVit_T_Weights.IMAGENET1K_V1)
-            self.model = maxvit_t(weights=None)  # No pretrained weights
+            self.model = maxvit_t(weights=None, input_size=(img_size, img_size))  # No pretrained weights
             self.model.classifier[-1] = nn.Linear(self.model.classifier[-1].in_features, self.config.num_classes)
         else:
             raise ValueError(f"Unsupported model_name: {self.config.architecture}")
 
-        self.replace_activation(self.model, activation_functions['activation'])
+        self.replace_activation(self.model, activation_functions[self.config['activation']])
+
         print(self.model)
         
 
@@ -285,7 +287,7 @@ class TransformerClassifier(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         x, y = batch
         logits = self(x)
-        loss = nn.functional.cross_entropy(preds, y)
+        loss = nn.functional.cross_entropy(logits, y)
         preds = torch.argmax(logits, dim=1)
         acc = accuracy(preds, y, num_classes=self.config['num_classes'], task='multiclass')
         self.log('val_loss', loss, prog_bar=True)
@@ -312,11 +314,6 @@ class TransformerClassifier(pl.LightningModule):
                 # Recur for child modules
                 self.replace_activation(child, new_activation_fn)
 
-# m = TransformerClassifier('vit')
-# print(m)
-
-# m.replace_activation(m, BReLU)
-# print(m)
 
 def train_model():
     run = wandb.init(project=project_name, entity=entity)
@@ -375,7 +372,7 @@ def train_model():
 def main():
     setproctitle('transformer adv train(jh)')
     resume = sweep_config.get('sweep_id')
-    sweep_id = resume if resume else wandb.sweep(sweep_config, entity=entity, project=project_name)
+    sweep_id = resume if resume else wandb.sweep(sweep_config, project=project_name)
     wandb.agent(sweep_id=sweep_id, function=train_model, project=project_name, entity=entity)
     
 
