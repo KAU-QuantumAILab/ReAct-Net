@@ -17,8 +17,8 @@ import torchattacks
 import yaml
 import argparse
 
-from torchvision.models import vit_b_16, swin_t, maxvit_t, ViT_B_16_Weights, Swin_T_Weights, MaxVit_T_Weights
-
+from torchvision.models import vit_b_16, swin_t, maxvit_t, ViT_B_16_Weights, Swin_T_Weights, MaxVit_T_Weights, vit_l_16, swin_s, swin_b
+from torchvision.models import vgg16, efficientnet_b0, VGG16_Weights, EfficientNet_B0_Weights, efficientnet_v2_s, EfficientNet_V2_S_Weights
 #############################################################################################################
 parser = argparse.ArgumentParser(
     description="""sweep with yaml
@@ -26,14 +26,14 @@ parser = argparse.ArgumentParser(
     """
 )
 parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
-parser.add_argument('--project_name', default="transformer_test", help='wandb project name')
+parser.add_argument('--project_name', default="vgg_eff_CIFAR10_4090", help='wandb project name')
 parser.add_argument('--entity', default='kau-quantum', help='wandb entity name')
 parser.add_argument('--devices', default=0, type=int, help='choose the CUDA(ex: 0, 1, 2, -1)')
 
 args = parser.parse_args()
 
 torch.set_float32_matmul_precision('high')
-
+# torch.autograd.set_detect_anomaly(True)
 global project_name, sweep_config, device_num
 
 project_name = args.project_name        # wandb project name
@@ -64,19 +64,35 @@ activation_functions = {
 def choose_dataset(config):
     if config["dataset"] == "CIFAR10":
         config['num_classes'] = 10
-        train_transform = transforms.Compose(
-            [
-            transforms.RandomCrop(32, padding=4),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-        ])
+        if config['img_size'] == 32:
+            train_transform = transforms.Compose(
+                [
+                transforms.RandomCrop(32, padding=4),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+            ])
 
-        test_transform = transforms.Compose(
-            [
-            transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-        ])
+            test_transform = transforms.Compose(
+                [
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+            ])
+        elif config['img_size'] == 224:
+            train_transform = transforms.Compose(
+                [
+                transforms.RandomResizedCrop(224),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+            ])
+
+            test_transform = transforms.Compose(
+                [
+                transforms.Resize(224),
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+            ])
             
         trainset = CIFAR10(root='~/data', train=True,
                                                 download=True, transform=train_transform)
@@ -100,8 +116,8 @@ def choose_dataset(config):
             transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
         ])
         
-        trainset = ImageFolder('/data/ImageNet100/train', transform=transform)
-        testset = ImageFolder('/data/ImageNet100/val', transform=transform)
+        trainset = ImageFolder('~/data/ImageNet100/train', transform=transform)
+        testset = ImageFolder('~/data/ImageNet100/val', transform=transform)
         
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'], shuffle=True, num_workers =config['num_workers'])
         testloader = torch.utils.data.DataLoader(testset, batch_size=config['batch_size'], shuffle=False, num_workers =config['num_workers'])
@@ -118,8 +134,8 @@ def choose_dataset(config):
             transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
         ])
 
-        trainset = ImageFolder('/data/ImageNet/2012/ILSVRC2012_img_train', transform=transform)
-        testset = ImageFolder('/data/ImageNet/2012/ILSVRC2012_img_val', transform=transform)
+        trainset = ImageFolder('~/data/ImageNet/2012/ILSVRC2012_img_train', transform=transform)
+        testset = ImageFolder('~/data/ImageNet/2012/ILSVRC2012_img_val', transform=transform)
         
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=config['batch_size'], shuffle=True, num_workers =config['num_workers'])
 
@@ -149,27 +165,82 @@ def choose_dataset(config):
     
     return data
 
+class CustomReLU(nn.Module):
+    def __init__(self):
+        super(CustomReLU, self).__init__()
+        # 기본적으로 inplace를 사용하지 않도록 설정
+        self.inplace = False
 
-# Define the LightningModule
+    def forward(self, x):
+        # inplace 옵션을 강제로 False로 설정한 ReLU
+        return torch.maximum(x, torch.tensor(0.0, device=x.device))
+
+
 class TransformerClassifier(pl.LightningModule):
     def __init__(self, config):
         super(TransformerClassifier, self).__init__()
         
         self.config = config
-        img_size = 32 if self.config['dataset'] == "CIFAR10" else 224
+        img_size = self.config['img_size']
+        pretrained = self.config['pretrain']
 
-        # Select the transformer model
+        # Select the model
         if self.config["architecture"] == 'vit':
-            # self.model = vit_b_16(weights=ViT_B_16_Weights.IMAGENET1K_V1)  # Use weights
-            self.model = vit_b_16(weights=None, image_size=img_size)  # No pretrained weights
-            self.model.heads.head = nn.Linear(self.model.heads.head.in_features, self.config.num_classes)  # Correct head layer
+            vit = vit_b_16
+            self.model = vit(weights=ViT_B_16_Weights.IMAGENET1K_V1) if img_size == 224 and pretrained else vit(weights=None, image_size=img_size)
+            self.model.heads.head = nn.Linear(self.model.heads.head.in_features, self.config.num_classes)
         elif self.config["architecture"] == 'swin':
-            # self.model = swin_t(weights=Swin_T_Weights.IMAGENET1K_V1)
-            self.model = swin_t(weights=None)  # No pretrained weights
+            swin = swin_t
+            self.model = swin(weights=Swin_T_Weights.IMAGENET1K_V1) if img_size == 224 and pretrained else swin(weights=None)
             self.model.head = nn.Linear(self.model.head.in_features, self.config.num_classes)
-        elif self.config["architecture"] == 'maxvit': # 포기 크기 고칠 시간 없음 (vit, swin만)
-            # self.model = maxvit_t(weights=MaxVit_T_Weights.IMAGENET1K_V1)
-            self.model = maxvit_t(weights=None, input_size=(img_size, img_size))  # No pretrained weights
+        
+        elif self.config["architecture"] == 'vgg16':
+            vgg = vgg16
+            self.model = vgg(weights=VGG16_Weights.IMAGENET1K_V1) if pretrained else vgg(weights=None)
+            if self.config['dataset'] == "CIFAR10" and self.config['img_size'] == 32:
+                # 1. MaxPool 레이어를 Identity로 변경 (MaxPooling을 생략)
+                # for i in [4, 9, 16, 23, 30]:  # VGG에서 MaxPool 레이어의 위치
+                for i in [16, 23, 30]:  # VGG에서 MaxPool 레이어의 위치
+                    self.model.features[i] = nn.Identity()  # MaxPool을 Identity로 대체
+
+                # batch norm 없이 진행
+                # # 2. BatchNorm2d 추가: Conv2d 뒤에 BatchNorm2d 추가
+                # layers = []
+                # for i, layer in enumerate(self.model.features):
+                #     if isinstance(layer, nn.Conv2d):  # Conv 레이어 뒤에 BatchNorm 추가
+                #         layers.append(layer)
+                #         layers.append(nn.BatchNorm2d(layer.out_channels))  # BatchNorm 추가
+                #     else:
+                #         layers.append(layer)
+                # # 새롭게 구성된 feature 블록을 덮어쓰기
+                # self.model.features = nn.Sequential(*layers)
+
+                # 2. Fully Connected Layer 크기 조정 (4096 -> 1024)
+                self.model.classifier[0] = nn.Linear(512 * 7 * 7, 1024)  # in_features는 그대로, out_features를 1024로
+                self.model.classifier[3] = nn.Linear(1024, 1024)  # 중간 FC 레이어도 1024로 줄임
+                self.model.classifier[6] = nn.Linear(1024, self.config.num_classes)  # 최종 출력 레이어, CIFAR-10 클래스는 10개
+                # 3. Dropout을 사용하지 않도록 제거
+                self.model.classifier[2] = nn.Identity()  # Dropout 제거
+                self.model.classifier[5] = nn.Identity()  # Dropout 제거
+
+        elif self.config["architecture"] == 'efficientnet':
+            effnet = efficientnet_b0
+            self.model = effnet(weights=EfficientNet_B0_Weights.IMAGENET1K_V1) if pretrained else effnet(weights=None)
+            if self.config['dataset'] == "CIFAR10" and self.config['img_size'] == 32:
+                self.model.features[0][0] = nn.Conv2d(3, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+            self.model.classifier[-1] = nn.Linear(self.model.classifier[-1].in_features, self.config.num_classes)
+
+        elif self.config["architecture"] == 'eff2':
+            effnet = efficientnet_v2_s
+            self.model = effnet(weights=EfficientNet_V2_S_Weights.IMAGENET1K_V1) if pretrained else effnet(weights=None)
+            if self.config['dataset'] == "CIFAR10" and self.config['img_size'] == 32:
+                self.model.features[0][0] = nn.Conv2d(3, 24, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+            self.model.classifier[-1] = nn.Linear(self.model.classifier[-1].in_features, self.config.num_classes)
+            # dropout 해제
+            self.model.classifier[0] = nn.Identity()
+        
+        elif self.config["architecture"] == 'maxvit':
+            self.model = maxvit_t(weights=None, input_size=(img_size, img_size))
             self.model.classifier[-1] = nn.Linear(self.model.classifier[-1].in_features, self.config.num_classes)
         else:
             raise ValueError(f"Unsupported model_name: {self.config.architecture}")
@@ -307,9 +378,13 @@ class TransformerClassifier(pl.LightningModule):
         - new_activation_fn: The new activation function to replace with (e.g., nn.ReLU()).
         """
         for name, child in module.named_children():
-            if isinstance(child, (nn.ReLU, nn.GELU, nn.LeakyReLU)):
+            if isinstance(child, (ReLU, GELU, LeakyReLU, SiLU)):
                 # Replace activation function
-                setattr(module, name, new_activation_fn())
+                if new_activation_fn == ReLU and self.config['architecture'] == "eff2":
+                    new_act = CustomReLU()
+                else:
+                    new_act = new_activation_fn()
+                setattr(module, name, new_act)
             else:
                 # Recur for child modules
                 self.replace_activation(child, new_activation_fn)
@@ -321,6 +396,7 @@ def train_model():
     seed = config.get('seed') if config.get('seed') is not None else 42
     print(f"Seed set {seed}")
     seed_everything(seed)
+    setproctitle(f"{config['activation']}_{config['architecture']} training (jh)")
     
     rpa = '-All' if config.get('replaceAll') else ''
     name_postfix = config['activation'] + rpa + '-' + config['optimizer']
@@ -340,7 +416,7 @@ def train_model():
     alpha = f"_a={config.get('alpha')}" if config['activation'] in variable_act else ''
     
     a_dir = '' if alpha=='' else f"/a={config.get('alpha')}"
-    dir_path = f"./ckpt_{config['architecture']}/{config['dataset']}/{'all' if config.get('replaceAll') else 'part'}/{config['optimizer']}/{config['activation']}{a_dir}{'/'+str(seed)}"
+    dir_path = f"/media/qlab/새 볼륨/ckpt_{config['architecture']}/{config['dataset']}/{'all' if config.get('replaceAll') else 'part'}/{config['optimizer']}/{config['activation']}{a_dir}{'/'+str(seed)}"
     file_name = f"{config['activation']}{alpha}{'_ALL' if config.get('replaceAll') else ''}_{config['dataset']}_{config['optimizer']}_"
 
     callbacks = []
@@ -352,7 +428,7 @@ def train_model():
                                             dirpath=dir_path,
                                             filename=file_name + '{epoch}_{val_acc:.4f}')
         callbacks.append(checkpoint_callback)
-        # early_stop = EarlyStopping('val_acc', mode='max', patience=8)
+        early_stop = EarlyStopping('val_acc', mode='max', patience=8)
         # callbacks.append(early_stop)
         
     else:
@@ -360,7 +436,7 @@ def train_model():
                                             dirpath=dir_path,
                                             filename=file_name + '{epoch}_{Robust_acc:.4f}')
         callbacks.append(checkpoint_callback)    
-        # early_stop = EarlyStopping('Robust_acc', mode='max', patience=8)
+        early_stop = EarlyStopping('Robust_acc', mode='max', patience=8)
         # callbacks.append(early_stop)
         
     trainer = pl.Trainer(accelerator='gpu', max_epochs=config['epochs'], logger=wandb_logger,
@@ -370,7 +446,6 @@ def train_model():
     
 
 def main():
-    setproctitle('transformer adv train(jh)')
     resume = sweep_config.get('sweep_id')
     sweep_id = resume if resume else wandb.sweep(sweep_config, project=project_name)
     wandb.agent(sweep_id=sweep_id, function=train_model, project=project_name, entity=entity)
