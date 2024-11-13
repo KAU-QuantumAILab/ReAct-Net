@@ -16,7 +16,9 @@ from torch.nn import GELU, SiLU, ELU, LeakyReLU, PReLU, ReLU
 import torchattacks
 import yaml
 import argparse
+import torch.nn.functional as F
 
+from torchvision.models import VisionTransformer, SwinTransformer
 from torchvision.models import vit_b_16, swin_t, maxvit_t, ViT_B_16_Weights, Swin_T_Weights, MaxVit_T_Weights, vit_l_16, swin_s, swin_b
 from torchvision.models import vgg16, efficientnet_b0, VGG16_Weights, EfficientNet_B0_Weights, efficientnet_v2_s, EfficientNet_V2_S_Weights
 #############################################################################################################
@@ -26,7 +28,7 @@ parser = argparse.ArgumentParser(
     """
 )
 parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
-parser.add_argument('--project_name', default="vgg_eff_CIFAR10_4090", help='wandb project name')
+parser.add_argument('--project_name', default="CIFAR10_transformer", help='wandb project name')
 parser.add_argument('--entity', default='kau-quantum', help='wandb entity name')
 parser.add_argument('--devices', default=0, type=int, help='choose the CUDA(ex: 0, 1, 2, -1)')
 
@@ -176,6 +178,57 @@ class CustomReLU(nn.Module):
         return torch.maximum(x, torch.tensor(0.0, device=x.device))
 
 
+class StochasticMultiheadAttention(pl.LightningModule):
+    def __init__(self, config, embed_dim, num_heads, dropout=0.0, bias=True):
+        super(StochasticMultiheadAttention, self).__init__()
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.dropout = dropout
+        self.head_dim = embed_dim // num_heads
+        assert self.head_dim * num_heads == self.embed_dim, "embed_dim must be divisible by num_heads"
+        
+        self.in_proj = nn.Linear(embed_dim, 3 * embed_dim, bias=bias)
+        self.out_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
+        
+        self.mode = config.get('stochastic_mode')  # 'qk', 'v', or 'both'
+        if config.get('att_activation') == 'brelu':
+            self.brelu = BReLU()
+        else:
+            self.brelu = None
+            
+    
+    def forward(self, query, key, value):
+        batch_size, tgt_len, _ = query.size()
+        src_len = key.size(1)
+        
+        qkv = self.in_proj(query).chunk(3, dim=-1)
+        q, k, v = [x.view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2) for x in qkv]
+
+        attn_weights = torch.matmul(q, k.transpose(-2, -1)) / (self.head_dim ** 0.5)
+        attn_weights = F.softmax(attn_weights, dim=-1)
+        
+        if self.mode in ['qk', 'both'] and isinstance(self.brelu, BReLU):
+            attn_weights = self.brelu(attn_weights, attn_weights)
+            
+        if self.mode in ['v', 'both'] and isinstance(self.brelu, BReLU):
+            # V에 BReLU 적용
+            v = self.brelu(v)
+        
+        attn_output = torch.matmul(attn_weights, v)
+        
+        if self.mode == 'qkv' and isinstance(self.brelu, BReLU):
+            attn_output = self.brelu(attn_output)
+            
+        attn_output = attn_output.transpose(1, 2).contiguous().view(batch_size, tgt_len, self.embed_dim)
+        return self.out_proj(attn_output)
+        
+        
+        
+        
+        
+        
+
+
 class TransformerClassifier(pl.LightningModule):
     def __init__(self, config):
         super(TransformerClassifier, self).__init__()
@@ -183,16 +236,36 @@ class TransformerClassifier(pl.LightningModule):
         self.config = config
         img_size = self.config['img_size']
         pretrained = self.config['pretrain']
+        patch_size = 4 if img_size == 32 else 16
 
         # Select the model
         if self.config["architecture"] == 'vit':
-            vit = vit_b_16
-            self.model = vit(weights=ViT_B_16_Weights.IMAGENET1K_V1) if img_size == 224 and pretrained else vit(weights=None, image_size=img_size)
-            self.model.heads.head = nn.Linear(self.model.heads.head.in_features, self.config.num_classes)
+            # vit = vit_b_16
+            # self.model = vit(weights=ViT_B_16_Weights.IMAGENET1K_V1) if img_size == 224 and pretrained else vit(weights=None, image_size=img_size)
+            # self.model.heads.head = nn.Linear(self.model.heads.head.in_features, self.config.num_classes)
+            self.model = VisionTransformer(
+                image_size=img_size,
+                patch_size=patch_size,
+                num_layers=12,
+                num_heads=12,
+                hidden_dim=384,
+                mlp_dim=1536,
+                num_classes=10
+            )
+            
         elif self.config["architecture"] == 'swin':
-            swin = swin_t
-            self.model = swin(weights=Swin_T_Weights.IMAGENET1K_V1) if img_size == 224 and pretrained else swin(weights=None)
-            self.model.head = nn.Linear(self.model.head.in_features, self.config.num_classes)
+            # swin = swin_t
+            # self.model = swin(weights=Swin_T_Weights.IMAGENET1K_V1) if img_size == 224 and pretrained else swin(weights=None)
+            # self.model.head = nn.Linear(self.model.head.in_features, self.config.num_classes)
+            self.model = SwinTransformer(
+                patch_size=[4, 4],
+                embed_dim=96,
+                depths=[2, 6, 4],
+                num_heads=[3, 6, 12],
+                window_size=[4, 4],
+                mlp_ratio=4,
+                num_classes=10
+            )
         
         elif self.config["architecture"] == 'vgg16':
             vgg = vgg16
@@ -229,6 +302,8 @@ class TransformerClassifier(pl.LightningModule):
             if self.config['dataset'] == "CIFAR10" and self.config['img_size'] == 32:
                 self.model.features[0][0] = nn.Conv2d(3, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
             self.model.classifier[-1] = nn.Linear(self.model.classifier[-1].in_features, self.config.num_classes)
+            # dropout 해제
+            self.model.classifier[0] = nn.Identity()
 
         elif self.config["architecture"] == 'eff2':
             effnet = efficientnet_v2_s
@@ -245,11 +320,37 @@ class TransformerClassifier(pl.LightningModule):
         else:
             raise ValueError(f"Unsupported model_name: {self.config.architecture}")
 
-        self.replace_activation(self.model, activation_functions[self.config['activation']])
+        self.replace_activation(self.model, self.config['activation'], self.config.get("alpha"))
+        
+        if self.config.get("architecture") in ['vit', 'swin'] and self.config.get("mha_change") == True:
+            self.replace_attention(self.model)
 
         print(self.model)
         
 
+    def replace_attention(self, model):
+        """ViT의 기본 어텐션을 커스텀 스토캐스틱 어텐션으로 교체"""
+        for name, module in model.named_modules():
+            if isinstance(module, nn.MultiheadAttention):
+                parent = self.get_parent_module(model, name)
+                setattr(parent, name.split('.')[-1], 
+                        StochasticMultiheadAttention(self.config, 
+                                                     module.embed_dim,
+                                                     module.num_heads,
+                                                     module.dropout,
+                                                     module.in_proj_bias is not None))
+                
+    def get_parent_module(self, model, name):
+        """모듈의 부모 모듈을 찾는 헬퍼 함수"""
+        parent_name = '.'.join(name.split('.')[:-1])
+        if parent_name:
+            for n, m in model.named_modules():
+                if n == parent_name:
+                    return m
+        return model
+    
+    
+    
     def forward(self, x):
         return self.model(x)
     
@@ -369,7 +470,7 @@ class TransformerClassifier(pl.LightningModule):
         return loss
     
 
-    def replace_activation(self, module, new_activation_fn):
+    def replace_activation(self, module, new_activation_fn, alpha = None):
         """
         Recursively replace all activation functions in the model with the given activation function.
         
@@ -380,14 +481,16 @@ class TransformerClassifier(pl.LightningModule):
         for name, child in module.named_children():
             if isinstance(child, (ReLU, GELU, LeakyReLU, SiLU)):
                 # Replace activation function
-                if new_activation_fn == ReLU and self.config['architecture'] == "eff2":
+                if new_activation_fn == "relu" and self.config['architecture'] == "eff2":
                     new_act = CustomReLU()
+                elif new_activation_fn in ["Vbrelu", "leakyVbrelu", "PVbrelu"]:
+                    new_act = activation_functions[new_activation_fn](alpha = alpha)
                 else:
-                    new_act = new_activation_fn()
+                    new_act = activation_functions[new_activation_fn]()
                 setattr(module, name, new_act)
             else:
                 # Recur for child modules
-                self.replace_activation(child, new_activation_fn)
+                self.replace_activation(child, new_activation_fn, alpha)
 
 
 def train_model():
@@ -416,7 +519,8 @@ def train_model():
     alpha = f"_a={config.get('alpha')}" if config['activation'] in variable_act else ''
     
     a_dir = '' if alpha=='' else f"/a={config.get('alpha')}"
-    dir_path = f"/media/qlab/새 볼륨/ckpt_{config['architecture']}/{config['dataset']}/{'all' if config.get('replaceAll') else 'part'}/{config['optimizer']}/{config['activation']}{a_dir}{'/'+str(seed)}"
+    # dir_path = f"/media/qlab/새 볼륨/ckpt_{config['architecture']}/{config['dataset']}/{'all' if config.get('replaceAll') else 'part'}/{config['optimizer']}/{config['activation']}{a_dir}{'/'+str(seed)}"
+    dir_path = f"./ckpt_{config['architecture']}/{config['dataset']}/{'all' if config.get('replaceAll') else 'part'}/{config['optimizer']}/{config['activation']}{a_dir}{'/'+str(seed)}"
     file_name = f"{config['activation']}{alpha}{'_ALL' if config.get('replaceAll') else ''}_{config['dataset']}_{config['optimizer']}_"
 
     callbacks = []
