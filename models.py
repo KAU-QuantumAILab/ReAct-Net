@@ -83,17 +83,22 @@ class Leaky_BReLU(pl.LightningModule):
         epsilon = torch.distributions.bernoulli.Bernoulli(logits=x).sample()
         epsilon = torch.where(epsilon==0, 0.1, 1.0)
         
-        return x * epsilon.to(self.device)
+        return x * epsilon
 
 class VariableBReLU(pl.LightningModule):
     def __init__(self, alpha=1):
         super(VariableBReLU, self).__init__()
         self.alpha = alpha
         
+
+    def set_alpha(self, alpha):
+        self.alpha = alpha
+        
+        
     def forward(self, x):
         epsilon = torch.distributions.bernoulli.Bernoulli(logits=self.alpha * x).sample()
         
-        return x * epsilon.to(self.device)
+        return x * epsilon
     
     def extra_repr(self) -> str:
         return 'alpha={}'.format(self.alpha)
@@ -106,7 +111,7 @@ class LeakyVariableBReLU(pl.LightningModule):
     def forward(self, x):
         epsilon = torch.distributions.bernoulli.Bernoulli(logits=self.alpha * x).sample()
         epsilon = torch.where(epsilon==0, 0.1, 1.0)
-        return x * epsilon.to(self.device)
+        return x * epsilon
     
     def extra_repr(self) -> str:
         return 'alpha={}'.format(self.alpha)
@@ -189,40 +194,15 @@ class PBReLU(pl.LightningModule):
 class BReLU(pl.LightningModule):
     def __init__(self):
         super(BReLU, self).__init__()
-
-    def minmax(self, x):
-        x_min, _ = torch.min(x, axis=-1, keepdim=True)
-        x_max, _ = torch.max(x, axis=-1, keepdim=True)
-        return (x - x_min) / (x_max - x_min)
         
         
-    def forward(self, x):
-        if(len(x.shape) == 4):
-        
-            # output_mean = self.minmax(x.view(x.shape[0], x.shape[1], -1)).mean(axis=-1, keepdim=True)
-
-            # epsilon = torch.bernoulli(output_mean.expand_as(x))
-
+    def forward(self, x, probs=None):
+        if probs is None:
             epsilon = torch.distributions.bernoulli.Bernoulli(logits=x).sample()
-
-            return x * epsilon.to(self.device)
-        
         else:
-            # 범위 조절 후 평균을 확률로 사용
-            # pm = self.minmax(x).mean(axis=1, keepdim = True)
-            # epsilon = torch.bernoulli(pm.expand_as(x))
-            
-            # 입력 자체를 logits을 통해 확률로 사용
-            epsilon = torch.distributions.bernoulli.Bernoulli(logits=x).sample()
+            epsilon = torch.distributions.bernoulli.Bernoulli(probs=probs).sample()
 
-            # 절대값만 씌우고 확률로 사용
-            # epsilon = torch.distributions.bernoulli.Bernoulli(logits=torch.abs(x)).sample()
-            
-            # 범위 조절 없이 평균 구해서 logits으로 사용
-            # pm = x.mean(axis=1, keepdim = True)
-            # epsilon = torch.distributions.bernoulli.Bernoulli(logits=pm.expand_as(x)).sample()
-            
-            return x * epsilon.to(self.device)
+        return x * epsilon
 
 
 class MeasureAct(pl.LightningModule):                   # 확률적으로 모든 값을 0 또는 1로 변환
@@ -233,7 +213,7 @@ class MeasureAct(pl.LightningModule):                   # 확률적으로 모든
         epsilon = torch.distributions.bernoulli.Bernoulli(logits=x).sample()
         epsilon = epsilon * (1/(x + 1e-16))
         
-        return x * epsilon.to(self.device)
+        return x * epsilon
 
 
 class SomeMeasureAct(pl.LightningModule):               # 확률적으로 일부 값들을 0 또는 1로 변환
