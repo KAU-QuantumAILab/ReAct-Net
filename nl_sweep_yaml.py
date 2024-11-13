@@ -23,6 +23,7 @@ import yaml
 import numpy as np
 from torch.nn import GELU, SiLU, ELU, LeakyReLU, PReLU, ReLU
 from setproctitle import setproctitle
+from torchvision.models import wide_resnet101_2, wide_resnet50_2
 
 ##################################################################################
 
@@ -34,8 +35,8 @@ parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
 # parser.add_argument('--project_name', default="Brelu", help='wandb project name')
 # parser.add_argument('--project_name', default="Brelu_ImageNet_A100", help='wandb project name')
 # parser.add_argument('--project_name', default="VBReLU_CIFAR10_adv50", help='wandb project name')
-# parser.add_argument('--project_name', default="BReLU_CIFAR10_adv_all", help='wandb project name')
-parser.add_argument('--project_name', default="BReLU_ImageNet100_pgd7", help='wandb project name')
+parser.add_argument('--project_name', default="BReLU_CIFAR10_noAdv_forCW", help='wandb project name')
+# parser.add_argument('--project_name', default="BReLU_ImageNet100_pgd7", help='wandb project name')
 # parser.add_argument('--project_name', default="BReLU_CIFAR10_IAT_seeds", help='wandb project name')
 # parser.add_argument('--project_name', default="Brelu_CIFAR-10", help='wandb project name')
 parser.add_argument('--entity', default='kau-quantum', help='wandb entity name')
@@ -80,7 +81,9 @@ def seed_everything(seed:int = 1004):
 resnet_models = {
     'resnet18' : resnet.resnet18,
     'resnet50' : resnet.resnet50,
-    'resnet101' : resnet.resnet101
+    'resnet101' : resnet.resnet101,
+    'wide_resnet50' : wide_resnet50_2,
+    'wide_resnet101': wide_resnet101_2
 }
 
 activation_functions = {
@@ -141,6 +144,26 @@ class ModelWrapper(pl.LightningModule):
         self.cnn = self.create_model(self.config['activation'])
         mean, std = getDataNormalization(self.config["dataset"])
         self.normalization = transforms.Normalize(mean, std)
+    
+    
+    def replace_activation(self, module, new_act, alpha=None):
+        for name, child in module.named_children():
+            if isinstance(child, ReLU):
+                if new_act in ["Vbrelu", "leakyVbrelu", "PVbrelu"]:
+                    new_act = activation_functions[new_act](alpha=alpha)
+                else:
+                    new_act = activation_functions[new_act]()
+                setattr(module, name, new_act)
+            else:
+                self.replace_activation(child, new_act, alpha)
+    
+    
+    def get_alpha(self):
+        for name, module in self.named_modules():
+            if isinstance(module, VariableBReLU):
+                return module.alpha
+        
+        return 1.0
 
     def create_model(self, activation):
         if(self.config["dataset"] == 'CIFAR10' or self.config["dataset"] == 'MNIST'):
@@ -159,31 +182,32 @@ class ModelWrapper(pl.LightningModule):
         elif(self.config['dataset'] == 'MNIST'):
             model.conv1 = nn.Conv2d(1, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
             model.maxpool = nn.Identity()
-
-
-
         
-        if activation == 'relu':
-            pass
         
-        elif activation == 'Vbrelu' or activation == 'leakyVbrelu' or activation == 'PVbrelu' or activation == 'vbelu':
-            act = activation_functions[self.config['activation']]
-            alpha = self.config.get('alpha')
+        if self.config['architecture'] in ['resnet18', 'resnet50', 'resnet101']:
+            if activation == 'relu':
+                pass
+            
+            elif activation == 'Vbrelu' or activation == 'leakyVbrelu' or activation == 'PVbrelu' or activation == 'vbelu':
+                act = activation_functions[self.config['activation']]
+                alpha = self.config.get('alpha')
 
-            if self.config.get('replaceAll'): model.relu = act(alpha=alpha)
-            for name,child in model.named_children():
-                if(isinstance(child, nn.Sequential)):
-                    for sub_name, sub_child in child.named_children():
-                        sub_child.configure_react(activation_functions[self.config['activation']], replaceAll=self.config.get('replaceAll'), alpha=self.config.get('alpha'))
-        
+                if self.config.get('replaceAll'): model.relu = act(alpha=alpha)
+                for name,child in model.named_children():
+                    if(isinstance(child, nn.Sequential)):
+                        for sub_name, sub_child in child.named_children():
+                            sub_child.configure_react(activation_functions[self.config['activation']], replaceAll=self.config.get('replaceAll'), alpha=self.config.get('alpha'))
+            
+            else:
+                act = activation_functions[self.config['activation']]
+
+                if self.config.get('replaceAll'): model.relu = act()
+                for name,child in model.named_children():
+                    if(isinstance(child, nn.Sequential)):
+                        for sub_name, sub_child in child.named_children():
+                            sub_child.configure_react(activation_functions[self.config['activation']], replaceAll=self.config.get('replaceAll'))
         else:
-            act = activation_functions[self.config['activation']]
-
-            if self.config.get('replaceAll'): model.relu = act()
-            for name,child in model.named_children():
-                if(isinstance(child, nn.Sequential)):
-                    for sub_name, sub_child in child.named_children():
-                        sub_child.configure_react(activation_functions[self.config['activation']], replaceAll=self.config.get('replaceAll'))
+            self.replace_activation(model, self.config['activation'], self.config.get('alpha'))
         
         return model
 
@@ -207,8 +231,20 @@ class LitAutoEncoder(pl.LightningModule):
             self.encoder = Net(config)
         else:
             self.encoder = ModelWrapper(config)
-        print(self.encoder)
         
+        self.random_scheduler = config.get("random_scheduler")
+        if self.random_scheduler:
+            # self.alpha_schedule = torch.linspace(1000, 1, self.config['epochs'])    # 선형 감소 (1000, 1)
+            # self.alpha_schedule = torch.logspace(3, 0, self.config['epochs'])    # log 감소 (1000, 1)
+            self.alpha_schedule = torch.logspace(10, 0, self.config['epochs'], base=2)    # log 감소 (1024, 1)
+        print(self.encoder)
+    
+    
+    def change_VBReLU_alpha(self, alpha):
+        for name, module in self.encoder.named_modules():
+            if isinstance(module, VariableBReLU):
+                module.set_alpha(alpha)
+
     
     def mixup_data(self, x, y):
         mixup_alpha = 1.0
@@ -221,6 +257,13 @@ class LitAutoEncoder(pl.LightningModule):
     
     def mixup_criterion(self, criterion, pred, y_a, y_b, lam):
         return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
+    
+    
+    def on_train_epoch_start(self):
+        if self.random_scheduler:
+            current_alpha = self.alpha_schedule[self.current_epoch]
+            self.change_VBReLU_alpha(current_alpha)
+            self.log("current_alpha", current_alpha)
 
     def training_step(self, batch, batch_idx):
         # training_step defines the train loop.
@@ -352,7 +395,6 @@ class LitAutoEncoder(pl.LightningModule):
         self.log("Robust_acc", acc, prog_bar=True, sync_dist=True)
         self.log("Robust_loss", loss)
 
-
     def evaluate(self, batch, stage=None):
         x, y = batch
         logits = self.encoder(x)
@@ -369,7 +411,15 @@ class LitAutoEncoder(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        return self.evaluate(batch, "val")
+        loss = self.evaluate(batch, "val")
+        
+        if self.random_scheduler:
+            current_alpha = self.encoder.get_alpha()    # 현재 알파 저장
+            self.change_VBReLU_alpha(1.0)
+            self.evaluate(batch, "val_alpha1")
+            self.change_VBReLU_alpha(current_alpha)
+            
+        return loss
 
     def test_step(self, batch, batch_idx):
         return self.evaluate(batch, "test")
@@ -529,9 +579,9 @@ def train_model():
     alpha = f"_a={config.get('alpha')}" if config['activation'] in variable_act else ''
 
     a_dir = '' if alpha=='' else f"/a={config.get('alpha')}"
-    dir_path = f"./ckpt_pgd7/{config['dataset']}/{'all' if config.get('replaceAll') else 'part'}/{config['optimizer']}/{config['activation']}{a_dir}{'/'+str(seed)}"
+    dir_path = f"./ckpt_noAdv/{config['dataset']}/{'all' if config.get('replaceAll') else 'part'}/{config['optimizer']}/{config['activation']}{a_dir}{'/'+str(seed)}"
     file_name = f"{config['activation']}{alpha}{'_ALL' if config.get('replaceAll') else ''}_{config['dataset']}_{config['optimizer']}_"
-    # dir_path = f"./ckpt/{config['dataset']}/{'all' if config.get('replaceAll') else 'part'}/{config['optimizer']}/{config['activation']}/{prefix_d}/{dropout_p}"
+    # dir_path = f"./ckpt_pgd7/{config['dataset']}/{'all' if config.get('replaceAll') else 'part'}/{config['optimizer']}/{config['activation']}/{prefix_d}/{dropout_p}"
     # file_name = f"{config['activation']}{alpha}{'_ALL' if config.get('replaceAll') else ''}_{config['dataset']}_{config['optimizer']}_drop={dropout_p}"
     
     callbacks = []
