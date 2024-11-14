@@ -17,7 +17,7 @@ def make_config(**kwargs):
     act = kwargs.get('act')
     replaceAll = True if kwargs.get('replaceALL') == 'all' else False
     alpha = kwargs.get('alpha')
-    adv = kwargs.get('adv')
+    adv = kwargs.get('adv', True)
     atk_type = kwargs.get('atk_type')
     steps = kwargs.get('steps')
     eps = kwargs.get('eps')
@@ -48,6 +48,8 @@ def make_config(**kwargs):
         cfg['kappa'] = kappa
     if atk_type == 'modCW':
         cfg['early'] = kwargs.get('early')
+    if atk_type == 'eotpgd':
+        cfg['eot_iter'] = kwargs.get('eot_iter', 2)
     return cfg
 
 def printConfig(cfg):
@@ -129,10 +131,66 @@ def modCW_test(act, opt, ckpt, replace, alpha, seed, c = 1, kappa = 0, steps = 5
     return result[0]
 
 
+def autoattack_test(act, opt, ckpt, replace, alpha, seed, arch='resnet18'):
+    cfg = make_config(act=act, opt=opt, replaceALL=replace, alpha=alpha, adv=True, atk_type='auto', eps=0.0314, seed=seed, arch=arch)
+    printConfig(cfg)
+    model = load_model(ckpt=ckpt, config=cfg, map_location=map_location)
+    _, valloader = choose_dataset(config=cfg)
+    trainer = pl.Trainer(inference_mode=False, devices=gpu_num)
+    result = trainer.validate(model, valloader)[0]
+    return result
+
+
+def square_test(act, opt, ckpt, replace, alpha, seed, arch='resnet18'):
+    cfg = make_config(act=act, opt=opt, replaceALL=replace, alpha=alpha, adv=True, atk_type='square', eps=0.0314, seed=seed, arch=arch)
+    printConfig(cfg)
+    model = load_model(ckpt=ckpt, config=cfg, map_location=map_location)
+    _, valloader = choose_dataset(config=cfg)
+    trainer = pl.Trainer(inference_mode=False, devices=gpu_num)
+    result = trainer.validate(model, valloader)[0]
+    return result
+
+
+def eotpgd_test(act, opt, ckpt, replace, alpha, seed, eot_steps = 10, eot_iter=2, arch='resnet18'):
+    cfg = make_config(act=act, opt=opt, replaceALL=replace, alpha=alpha, adv=True, 
+                      atk_type='eotpgd', steps=eot_steps, eot_iter=eot_iter, eps=0.0314, seed=seed, arch=arch)
+    printConfig(cfg)
+    model = load_model(ckpt=ckpt, config=cfg, map_location=map_location)
+    _, valloader = choose_dataset(config=cfg)
+    trainer = pl.Trainer(inference_mode=False, devices = gpu_num)
+    result = trainer.validate(model, valloader)[0]
+    return result
+
+
+def one_pixel_test(act, opt, ckpt, replace, alpha, seed, arch='resnet18'):
+    cfg = make_config(act=act, opt=opt, replaceALL=replace, alpha=alpha, adv=True, atk_type='one_pixel', seed=seed, arch=arch)
+    printConfig(cfg)
+    model = load_model(ckpt=ckpt, config=cfg, map_location=map_location)
+    _, valloader = choose_dataset(config=cfg)
+    trainer = pl.Trainer(inference_mode=False, devices=gpu_num)
+    result = trainer.validate(model, valloader)[0]
+    return result
+
+
+def pixle_test(act, opt, ckpt, replace, alpha, seed, arch='resnet18'):
+    cfg = make_config(act=act, opt=opt, replaceALL=replace, alpha=alpha, adv=True, atk_type='pixle', seed=seed, arch=arch)
+    printConfig(cfg)
+    model = load_model(ckpt=ckpt, config=cfg, map_location=map_location)
+    _, valloader = choose_dataset(config=cfg)
+    trainer = pl.Trainer(inference_mode=False, devices=gpu_num)
+    result = trainer.validate(model, valloader)[0]
+    return result
+
+
 # 전체 테스트 묶어놓은 함수
 def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated', arch='resnet18',
              fgsm = True, pgd = True, pgd_step = 3, rda=True, rda_step = 30,
              cw = True, cw_c = 1, cw_kappa = 0, cw_step = 50, mod_cw = False, 
+             autoattack = True,
+             square = True,
+             eotpgd = True, eot_steps = 10, eot_iter = 2,
+             one_pixel = True,
+             pixle = True,
              log_wandb = False, project_name='attack_test', csv_file_name = "attak_test.csv"):
     # alpha 있는 함수 분별하기 위한 리스트
     variable = ['Vbrelu', 'leakyVbrelu', 'PVbrelu']
@@ -230,18 +288,57 @@ def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated', arch='resnet18',
                     wandb.log({'CW_acc': cw_result['Robust_acc'],
                                'CW_loss' : cw_result['Robust_loss']})
             
-            if mod_cw:
-                mod_cw_result = modCW_test(act=act, opt=opt, ckpt=ckpt_file_path, replace=replaceALL, alpha=alpha,
-                                    seed=seed, c = cw_c, kappa=cw_kappa, steps=cw_step, early=True)
-                temp_dict['mod_cw_acc'] = mod_cw_result['Robust_acc']
-                full_mod_cw_result = modCW_test(act=act, opt=opt, ckpt=ckpt_file_path, replace=replaceALL, alpha=alpha,
-                                    seed=seed, c = cw_c, kappa=cw_kappa, steps=cw_step, early=False)
-                temp_dict['full_modCW_acc'] = full_mod_cw_result['Robust_acc']
+            # if mod_cw:
+            #     mod_cw_result = modCW_test(act=act, opt=opt, ckpt=ckpt_file_path, replace=replaceALL, alpha=alpha,
+            #                         seed=seed, c = cw_c, kappa=cw_kappa, steps=cw_step, early=True)
+            #     temp_dict['mod_cw_acc'] = mod_cw_result['Robust_acc']
+            #     full_mod_cw_result = modCW_test(act=act, opt=opt, ckpt=ckpt_file_path, replace=replaceALL, alpha=alpha,
+            #                         seed=seed, c = cw_c, kappa=cw_kappa, steps=cw_step, early=False)
+            #     temp_dict['full_modCW_acc'] = full_mod_cw_result['Robust_acc']
+            #     if log_wandb:
+            #         wandb.log({'modCW_acc': mod_cw_result['Robust_acc'],
+            #                    'modCW_loss' : mod_cw_result['Robust_loss'],
+            #                    'full_modCW_acc' : full_mod_cw_result['Robust_acc'],
+            #                    'full_modCW_loss' : full_mod_cw_result['Robust_loss'],})
+            
+            if autoattack:
+                autoattack_result = autoattack_test(act=act, opt=opt, ckpt=ckpt_file_path, replace=replaceALL,
+                                                    alpha=alpha, seed=seed, arch=arch)
+                temp_dict['autoattack_acc'] = autoattack_result['Robust_acc']
                 if log_wandb:
-                    wandb.log({'modCW_acc': mod_cw_result['Robust_acc'],
-                               'modCW_loss' : mod_cw_result['Robust_loss'],
-                               'full_modCW_acc' : full_mod_cw_result['Robust_acc'],
-                               'full_modCW_loss' : full_mod_cw_result['Robust_loss'],})
+                    wandb.log({'AutoAttack_acc': autoattack_result['Robust_acc']})
+            
+            if square:
+                square_result = square_test(act=act, opt=opt, ckpt=ckpt_file_path, replace=replaceALL,
+                                            alpha=alpha, seed=seed, arch=arch)
+                temp_dict['square_acc'] = square_result['Robust_acc']
+                if log_wandb:
+                    wandb.log({'Square_acc' : square_result['Robust_acc']})
+            
+            if one_pixel:
+                one_pixel_result = square_test(act=act, opt=opt, ckpt=ckpt_file_path, replace=replaceALL,
+                                            alpha=alpha, seed=seed, arch=arch)
+                temp_dict['one_pixel_acc'] = one_pixel_result['Robust_acc']
+                if log_wandb:
+                    wandb.log({'one_pixel_acc' : one_pixel_result['Robust_acc']})
+            
+            if pixle:
+                pixle_result = square_test(act=act, opt=opt, ckpt=ckpt_file_path, replace=replaceALL,
+                                            alpha=alpha, seed=seed, arch=arch)
+                temp_dict['pixle_acc'] = pixle_result['Robust_acc']
+                if log_wandb:
+                    wandb.log({'Pixle_acc' : pixle_result['Robust_acc']})
+            
+            if eotpgd:
+                eotpgd_result = eotpgd_test(act=act, opt=opt, ckpt=ckpt_file_path, replace=replaceALL,
+                                            alpha=alpha, seed=seed, arch=arch,
+                                            eot_steps=eot_steps, eot_iter=eot_iter)
+                temp_dict['eotpgd_acc'] = eotpgd_result['Robust_acc']
+                if log_wandb:
+                    wandb.log({'EOTPGD_acc' : eotpgd_result['Robust_acc']})
+                
+                pass
+            
                 
             
             if log_wandb:
@@ -264,12 +361,17 @@ if __name__=='__main__':
     # pgd_step = list(range(1, 10)) + list(range(10, 101, 10))
     pgd_step = 20
     all_test(
-        ckpt_root_dir = './ckpt_eff2/CIFAR10/all/AdamW', arch='eff2',
-        fgsm = True,
-        pgd = True, pgd_step = pgd_step,
+        ckpt_root_dir = './ckpt_resnet18', arch='resnet18',
+        fgsm = False,
+        pgd = False, pgd_step = pgd_step,
         rda = False, rda_step = 100,
-        cw=True, cw_c= 1, cw_kappa = 0, cw_step = 40, mod_cw=False,
-        log_wandb = True, project_name = 'eff_attack_test',
-        csv_file_name = 'eff_attack_test.csv'
+        cw=False, cw_c= 1, cw_kappa = 0, cw_step = 40, mod_cw=False,
+        autoattack=True,
+        square=True,
+        eotpgd=True, eot_steps=10, eot_iter=2,
+        one_pixel=True,
+        pixle=True,
+        log_wandb = False, project_name = 'resnet18_review',
+        csv_file_name = 'resnet18_review.csv'
     )
     # print(list(range(1, 10)) + list(range(10, 101, 10)))

@@ -18,7 +18,7 @@ import os
 import argparse
 import random
 # from lightning.pytorch.accelerators import find_usable_cuda_devices
-from torchattacks import FGSM, PGD, CW, Square, EOTPGD, AutoAttack
+from torchattacks import FGSM, PGD, CW, Square, EOTPGD, AutoAttack, Pixle, OnePixel
 import yaml
 import numpy as np
 from torch.nn import GELU, SiLU, ELU, LeakyReLU, PReLU, ReLU
@@ -152,14 +152,22 @@ class TransformerClassifier(pl.LightningModule):
             elif atkType == 'FGSM':
                 atk = FGSM(self.model, eps=eps)
             elif atkType == 'CW':
-                c = self.config.get('c') if self.config.get('c') is not None else 1
-                kappa = self.config.get('kappa') if self.config.get('kappa') is not None else 0
-                atk = CW(self.model, c = c, kappa=kappa, steps=steps)
-            elif atkType == 'modCW':
-                c = self.config.get('c') if self.config.get('c') is not None else 1
-                kappa = self.config.get('kappa') if self.config.get('kappa') is not None else 0
-                early = self.config.get('early') if self.config.get('kappa') is not None else True
-                atk = modCW(self.model, c = c, kappa=kappa, steps=steps, early_stop=early)
+                c = self.config.get('c', 1)
+                kappa = self.config.get('kappa', 0)
+                atk = CW(self.encoder, c = c, kappa=kappa, steps=steps)
+            elif atkType == 'auto':
+                atk = AutoAttack(self.encoder, norm="Linf", eps=eps, n_classes=self.config['num_classes'])
+            elif atkType == 'square':
+                atk = Square(self.encoder, eps=eps)
+            elif atkType == 'eotpgd':
+                eot_iter = self.config.get('eot_iter', 2)
+                atk = EOTPGD(self.encoder, eps=eps, alpha=alpha, steps=steps, eot_iter=eot_iter)
+            
+            # elif atkType == 'modCW':
+            #     c = self.config.get('c') if self.config.get('c') is not None else 1
+            #     kappa = self.config.get('kappa') if self.config.get('kappa') is not None else 0
+            #     early = self.config.get('early') if self.config.get('kappa') is not None else True
+            #     atk = modCW(self.model, c = c, kappa=kappa, steps=steps, early_stop=early)
             adv_images = atk(x, y)
         return adv_images
     
@@ -708,6 +716,10 @@ class LitAutoEncoder(pl.LightningModule):
             elif atkType == 'eotpgd':
                 eot_iter = self.config.get('eot_iter', 2)
                 atk = EOTPGD(self.encoder, eps=eps, alpha=alpha, steps=steps, eot_iter=eot_iter)
+            elif atkType == 'one_pixel':
+                atk = OnePixel(self.encoder, pixels=5, steps=50, popsize=100)
+            elif atkType == "pixle":
+                atk = Pixle(self.encoder, restarts=100, max_iterations=20)
             # elif atkType == 'modCW':
             #     c = self.config.get('c', 1)
             #     kappa = self.config.get('kappa', 0)
@@ -863,7 +875,7 @@ def choose_dataset(config):
 
 
 def load_model(ckpt, config, map_location = None):
-    if config['architecture'] == 'resnet18':
+    if config['architecture'] in ['resnet18', 'resnet50', 'resnet101']:
         model = LitAutoEncoder.load_from_checkpoint(checkpoint_path=ckpt, config=config, map_location=map_location)
     else:
         model = TransformerClassifier.load_from_checkpoint(checkpoint_path=ckpt, config=config, map_location=map_location)
