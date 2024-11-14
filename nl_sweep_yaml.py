@@ -35,7 +35,7 @@ parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
 # parser.add_argument('--project_name', default="Brelu", help='wandb project name')
 # parser.add_argument('--project_name', default="Brelu_ImageNet_A100", help='wandb project name')
 # parser.add_argument('--project_name', default="VBReLU_CIFAR10_adv50", help='wandb project name')
-parser.add_argument('--project_name', default="BReLU_CIFAR10_noAdv_forCW", help='wandb project name')
+parser.add_argument('--project_name', default="BReLU_CIFAR10_wide", help='wandb project name')
 # parser.add_argument('--project_name', default="BReLU_ImageNet100_pgd7", help='wandb project name')
 # parser.add_argument('--project_name', default="BReLU_CIFAR10_IAT_seeds", help='wandb project name')
 # parser.add_argument('--project_name', default="Brelu_CIFAR-10", help='wandb project name')
@@ -146,16 +146,16 @@ class ModelWrapper(pl.LightningModule):
         self.normalization = transforms.Normalize(mean, std)
     
     
-    def replace_activation(self, module, new_act, alpha=None):
+    def replace_activation(self, module, new_activation_fn, alpha=None):
         for name, child in module.named_children():
             if isinstance(child, ReLU):
-                if new_act in ["Vbrelu", "leakyVbrelu", "PVbrelu"]:
-                    new_act = activation_functions[new_act](alpha=alpha)
+                if new_activation_fn in ["Vbrelu", "leakyVbrelu", "PVbrelu"]:
+                    new_act = activation_functions[new_activation_fn](alpha=alpha)
                 else:
-                    new_act = activation_functions[new_act]()
+                    new_act = activation_functions[new_activation_fn]()
                 setattr(module, name, new_act)
             else:
-                self.replace_activation(child, new_act, alpha)
+                self.replace_activation(child, new_activation_fn, alpha)
     
     
     def get_alpha(self):
@@ -207,7 +207,7 @@ class ModelWrapper(pl.LightningModule):
                         for sub_name, sub_child in child.named_children():
                             sub_child.configure_react(activation_functions[self.config['activation']], replaceAll=self.config.get('replaceAll'))
         else:
-            self.replace_activation(model, self.config['activation'], self.config.get('alpha'))
+            self.replace_activation(model, activation, self.config.get('alpha'))
         
         return model
 
@@ -579,7 +579,7 @@ def train_model():
     alpha = f"_a={config.get('alpha')}" if config['activation'] in variable_act else ''
 
     a_dir = '' if alpha=='' else f"/a={config.get('alpha')}"
-    dir_path = f"./ckpt_noAdv/{config['dataset']}/{'all' if config.get('replaceAll') else 'part'}/{config['optimizer']}/{config['activation']}{a_dir}{'/'+str(seed)}"
+    dir_path = f"./ckpt_wide/{config['dataset']}/{'all' if config.get('replaceAll') else 'part'}/{config['optimizer']}/{config['activation']}{a_dir}{'/'+str(seed)}"
     file_name = f"{config['activation']}{alpha}{'_ALL' if config.get('replaceAll') else ''}_{config['dataset']}_{config['optimizer']}_"
     # dir_path = f"./ckpt_pgd7/{config['dataset']}/{'all' if config.get('replaceAll') else 'part'}/{config['optimizer']}/{config['activation']}/{prefix_d}/{dropout_p}"
     # file_name = f"{config['activation']}{alpha}{'_ALL' if config.get('replaceAll') else ''}_{config['dataset']}_{config['optimizer']}_drop={dropout_p}"
