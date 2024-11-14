@@ -258,7 +258,7 @@ class TransformerClassifier(pl.LightningModule):
             # self.model = swin(weights=Swin_T_Weights.IMAGENET1K_V1) if img_size == 224 and pretrained else swin(weights=None)
             # self.model.head = nn.Linear(self.model.head.in_features, self.config.num_classes)
             self.model = SwinTransformer(
-                patch_size=[4, 4],
+                patch_size=[2, 2],
                 embed_dim=96,
                 depths=[2, 6, 4],
                 num_heads=[3, 6, 12],
