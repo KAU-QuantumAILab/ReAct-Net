@@ -521,8 +521,18 @@ class ModelWrapper(pl.LightningModule):
         super(ModelWrapper, self).__init__()
         self.config = config
         self.cnn = self.create_model(self.config['activation'])
-        mean, std = getDataNormalization(self.config["dataset"])
-        self.normalization = transforms.Normalize(mean, std)
+
+    
+    def replace_activation(self, module, new_activation_fn, alpha=None):
+        for name, child in module.named_children():
+            if isinstance(child, ReLU):
+                if new_activation_fn in ["Vbrelu", "leakyVbrelu", "PVbrelu"]:
+                    new_act = activation_functions[new_activation_fn](alpha=alpha)
+                else:
+                    new_act = activation_functions[new_activation_fn]()
+                setattr(module, name, new_act)
+            else:
+                self.replace_activation(child, new_activation_fn, alpha)
 
     def create_model(self, activation):
         if(self.config["dataset"] == 'CIFAR10' or self.config["dataset"] == 'MNIST'):
@@ -580,33 +590,34 @@ class ModelWrapper(pl.LightningModule):
             'TernaryMulSymSC' : TernaryMulSymSC,
         }
         
-        if activation == 'relu':
-            pass
-        
-        elif activation == 'Vbrelu' or activation == 'leakyVbrelu' or activation == 'PVbrelu' or activation == 'vbelu':
-            act = activation_functions[self.config['activation']]
-            alpha = self.config.get('alpha')
+        if self.config['architecture'] in ['resnet18', 'resnet50', 'resnet101']:
+            if activation == 'relu':
+                pass
+            
+            elif activation == 'Vbrelu' or activation == 'leakyVbrelu' or activation == 'PVbrelu' or activation == 'vbelu':
+                act = activation_functions[self.config['activation']]
+                alpha = self.config.get('alpha')
 
-            if self.config.get('replaceAll'): model.relu = act(alpha=alpha)
-            for name,child in model.named_children():
-                if(isinstance(child, nn.Sequential)):
-                    for sub_name, sub_child in child.named_children():
-                        sub_child.configure_react(activation_functions[self.config['activation']], replaceAll=self.config.get('replaceAll'), alpha=self.config.get('alpha'))
-        
+                if self.config.get('replaceAll'): model.relu = act(alpha=alpha)
+                for name,child in model.named_children():
+                    if(isinstance(child, nn.Sequential)):
+                        for sub_name, sub_child in child.named_children():
+                            sub_child.configure_react(activation_functions[self.config['activation']], replaceAll=self.config.get('replaceAll'), alpha=self.config.get('alpha'))
+            
+            else:
+                act = activation_functions[self.config['activation']]
+
+                if self.config.get('replaceAll'): model.relu = act()
+                for name,child in model.named_children():
+                    if(isinstance(child, nn.Sequential)):
+                        for sub_name, sub_child in child.named_children():
+                            sub_child.configure_react(activation_functions[self.config['activation']], replaceAll=self.config.get('replaceAll'))
         else:
-            act = activation_functions[self.config['activation']]
-
-            if self.config.get('replaceAll'): model.relu = act()
-            for name,child in model.named_children():
-                if(isinstance(child, nn.Sequential)):
-                    for sub_name, sub_child in child.named_children():
-                        sub_child.configure_react(activation_functions[self.config['activation']], replaceAll=self.config.get('replaceAll'))
-        
+            self.replace_activation(model, activation, self.config.get('alpha'))
         
         return model
 
     def forward(self, x):
-        x = self.normalization(x)
         return self.cnn(x)
 
 
@@ -635,22 +646,35 @@ class LitAutoEncoder(pl.LightningModule):
         # training_step defines the train loop.
         # it is independent of forward
         x, y = batch
-        z = self.encoder(x)
-        loss = nn.functional.cross_entropy(z, y)
         # Logging to TensorBoard (if installed) by default
-        # self.log("train_loss", loss)
         # print(loss)
 
         if(self.config['adv']):
-            advIdx = torch.randint(x.shape[0], (int(x.shape[0] * 0.2),))
-            advExample = self.generateAdv(x[advIdx], y[advIdx])
+            # all adv train (50%)
+            logits = self.encoder(x)
+            pure_loss = nn.functional.cross_entropy(logits, y)
+            preds = torch.argmax(logits, dim=1)
+            acc = accuracy(preds, y, num_classes=self.config["num_classes"], task="multiclass")
+            self.log("train_clean_acc", acc)
+            self.log("train_clean_loss", pure_loss)
+            
+            advExample = self.generateAdv(x, y, "PGD", self.config['eps'])
             advZ = self.encoder(advExample)
-            advLoss = nn.functional.cross_entropy(advZ, y[advIdx])
-            self.log("train_loss", loss + advLoss)
-            return loss + advLoss
+            advLoss = nn.functional.cross_entropy(advZ, y)
+            adv_preds = torch.argmax(advZ, dim=1)
+            robust_acc = accuracy(adv_preds, y, num_classes=self.config["num_classes"], task="multiclass")
+            self.log("train_robust_acc", robust_acc)
+            self.log("train_robust_loss", advLoss)
+            
+            loss = (pure_loss + advLoss) / 2
+
         else:
-            self.log("train_loss", loss)
-            return loss
+            z = self.encoder(x)
+            loss = nn.functional.cross_entropy(z, y)
+            
+        self.log("train_loss", loss)
+        
+        return loss
 
     def configure_optimizers(self):
         if(self.config['optimizer'] == "Adam"):
@@ -813,6 +837,7 @@ def choose_dataset(config):
             transforms.Resize((256, 256)),
             transforms.CenterCrop((224,224)),
             transforms.ToTensor(),
+            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
         ])
         
         trainset = ImageFolder('~/data/ImageNet100/train', transform=transform)
@@ -829,6 +854,7 @@ def choose_dataset(config):
             transforms.Resize((256, 256)),
             transforms.CenterCrop((224,224)),
             transforms.ToTensor(),
+            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
         ])
 
         trainset = ImageFolder('~/data/ImageNet/2012/ILSVRC2012_img_train', transform=transform)
@@ -846,7 +872,7 @@ def choose_dataset(config):
             transforms.RandomHorizontalFlip(),
             transforms.RandomResizedCrop(64),
             transforms.ToTensor(),
-
+            transforms.Normalize((0.4802, 0.4481, 0.3975), (0.2302, 0.2265, 0.2262))
         ])
         data_raw = ImageFolder('~/data/tiny-imagenet-200/train', transform=transform)
         trainset, testset = torch.utils.data.random_split(data_raw, [0.9, 0.1])
@@ -857,6 +883,7 @@ def choose_dataset(config):
     elif(config["dataset"]=="MNIST"):
         transform = transforms.Compose(
             [transforms.ToTensor(),
+             transforms.Normalize((0.1307, ), (0.3081, ))
         ])
 
         trainset = MNIST(root='~/data', train=True,
