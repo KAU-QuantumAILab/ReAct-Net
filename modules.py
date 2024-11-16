@@ -49,6 +49,9 @@ class TransformerClassifier(pl.LightningModule):
         self.config = config
         img_size = self.config['img_size']
         pretrained = self.config['pretrain']
+        
+        mean, std = getDataNormalization(self.config["dataset"])
+        self.normalization = transforms.Normalize(mean, std)
 
         # Select the model
         if self.config["architecture"] == 'vit':
@@ -142,6 +145,7 @@ class TransformerClassifier(pl.LightningModule):
         
 
     def forward(self, x):
+        self.normalization(x)
         return self.model(x)
     
     
@@ -786,13 +790,11 @@ def choose_dataset(config):
             transforms.RandomCrop(32, padding=4),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
         ])
 
         test_transform = transforms.Compose(
             [
             transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
         ])
             
         trainset = CIFAR10(root='~/data', train=True,

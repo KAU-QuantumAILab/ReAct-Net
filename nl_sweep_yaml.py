@@ -35,7 +35,7 @@ parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
 # parser.add_argument('--project_name', default="Brelu", help='wandb project name')
 # parser.add_argument('--project_name', default="Brelu_ImageNet_A100", help='wandb project name')
 # parser.add_argument('--project_name', default="VBReLU_CIFAR10_adv50", help='wandb project name')
-parser.add_argument('--project_name', default="BReLU_CIFAR10_wide", help='wandb project name')
+parser.add_argument('--project_name', default="BReLU_CIFAR10_H100", help='wandb project name')
 # parser.add_argument('--project_name', default="BReLU_ImageNet100_pgd7", help='wandb project name')
 # parser.add_argument('--project_name', default="BReLU_CIFAR10_IAT_seeds", help='wandb project name')
 # parser.add_argument('--project_name', default="Brelu_CIFAR-10", help='wandb project name')
@@ -536,8 +536,9 @@ def train_model():
     seed = seed if seed is not None else 42
     print(f"Seed is {seed}")
     seed_everything(seed)
-    wandb.define_metric("val_acc", summary="max")
-    wandb.define_metric("Robust_acc", summary="max")
+    setproctitle(f"{config['activation']}_{config['architecture']}_{config['dataset']} (jh)")
+    # wandb.define_metric("val_acc", summary="max")
+    # wandb.define_metric("Robust_acc", summary="max")
     # name_postfix = "reference" if config['activation'] == 'relu' else "ReAct"
     rpa = '-All' if config.get('replaceAll') else ''
     name_postfix = config['activation'] + rpa + '-' + config['optimizer']
@@ -579,7 +580,7 @@ def train_model():
     alpha = f"_a={config.get('alpha')}" if config['activation'] in variable_act else ''
 
     a_dir = '' if alpha=='' else f"/a={config.get('alpha')}"
-    dir_path = f"./ckpt_wide/{config['dataset']}/{'all' if config.get('replaceAll') else 'part'}/{config['optimizer']}/{config['activation']}{a_dir}{'/'+str(seed)}"
+    dir_path = f"./ckpt_{config['architecture']}/{config['dataset']}/{'all' if config.get('replaceAll') else 'part'}/{config['optimizer']}/{config['activation']}{a_dir}{'/'+str(seed)}"
     file_name = f"{config['activation']}{alpha}{'_ALL' if config.get('replaceAll') else ''}_{config['dataset']}_{config['optimizer']}_"
     # dir_path = f"./ckpt_pgd7/{config['dataset']}/{'all' if config.get('replaceAll') else 'part'}/{config['optimizer']}/{config['activation']}/{prefix_d}/{dropout_p}"
     # file_name = f"{config['activation']}{alpha}{'_ALL' if config.get('replaceAll') else ''}_{config['dataset']}_{config['optimizer']}_drop={dropout_p}"
@@ -617,7 +618,7 @@ def train_model():
 
 
 def main():
-    setproctitle('pgd7 adv train (jh)')
+    # setproctitle('pgd7 adv train (jh)')
     resume = sweep_config.get('sweep_id')
     sweep_id = resume if resume else wandb.sweep(sweep_config, project=project_name)
     # sweep_id = "gt3qp3cj"

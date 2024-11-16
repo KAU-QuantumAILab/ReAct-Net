@@ -72,13 +72,11 @@ def choose_dataset(config):
                 transforms.RandomCrop(32, padding=4),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
-                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
             ])
 
             test_transform = transforms.Compose(
                 [
                 transforms.ToTensor(),
-                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
             ])
         elif config['img_size'] == 224:
             train_transform = transforms.Compose(
@@ -86,14 +84,12 @@ def choose_dataset(config):
                 transforms.RandomResizedCrop(224),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
-                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
             ])
 
             test_transform = transforms.Compose(
                 [
                 transforms.Resize(224),
                 transforms.ToTensor(),
-                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
             ])
             
         trainset = CIFAR10(root='~/data', train=True,
@@ -115,7 +111,6 @@ def choose_dataset(config):
             transforms.Resize((256, 256)),
             transforms.CenterCrop((224,224)),
             transforms.ToTensor(),
-            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
         ])
         
         trainset = ImageFolder('~/data/ImageNet100/train', transform=transform)
@@ -133,7 +128,6 @@ def choose_dataset(config):
             transforms.Resize((256, 256)),
             transforms.CenterCrop((224,224)),
             transforms.ToTensor(),
-            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
         ])
 
         trainset = ImageFolder('~/data/ImageNet/2012/ILSVRC2012_img_train', transform=transform)
@@ -225,7 +219,17 @@ class StochasticMultiheadAttention(pl.LightningModule):
         
         
         
-        
+def getDataNormalization(dataset):
+    if(dataset == 'CIFAR10'):
+        return (0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)
+    elif(dataset == 'ImageNet'):
+        return (0.485, 0.456, 0.406), (0.229, 0.224, 0.225)
+    elif(dataset == 'MNIST'):
+        return (0.1307, ), (0.3081, )
+    elif(dataset == 'TinyImagenet'):
+        return (0.4802, 0.4481, 0.3975), (0.2302, 0.2265, 0.2262)
+    elif(dataset == 'ImageNet100'):
+        return (0.485, 0.456, 0.406), (0.229, 0.224, 0.225)
         
 
 
@@ -237,6 +241,9 @@ class TransformerClassifier(pl.LightningModule):
         img_size = self.config['img_size']
         pretrained = self.config['pretrain']
         patch_size = 4 if img_size == 32 else 16
+        
+        mean, std = getDataNormalization(self.config["dataset"])
+        self.normalization = transforms.Normalize(mean, std)
 
         # Select the model
         if self.config["architecture"] == 'vit':
@@ -352,6 +359,7 @@ class TransformerClassifier(pl.LightningModule):
     
     
     def forward(self, x):
+        x = self.normalization(x)
         return self.model(x)
     
     
@@ -499,7 +507,7 @@ def train_model():
     seed = config.get('seed') if config.get('seed') is not None else 42
     print(f"Seed set {seed}")
     seed_everything(seed)
-    setproctitle(f"{config['activation']}_{config['architecture']} training (jh)")
+    setproctitle(f"{config['activation']}_{config['architecture']}_{config['dataset']} (jh)")
     
     rpa = '-All' if config.get('replaceAll') else ''
     name_postfix = config['activation'] + rpa + '-' + config['optimizer']
