@@ -35,7 +35,7 @@ parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
 # parser.add_argument('--project_name', default="Brelu", help='wandb project name')
 # parser.add_argument('--project_name', default="Brelu_ImageNet_A100", help='wandb project name')
 # parser.add_argument('--project_name', default="VBReLU_CIFAR10_adv50", help='wandb project name')
-parser.add_argument('--project_name', default="BReLU_CIFAR10_H100", help='wandb project name')
+parser.add_argument('--project_name', default="BReLU_CIFAR10_wide", help='wandb project name')
 # parser.add_argument('--project_name', default="BReLU_ImageNet100_pgd7", help='wandb project name')
 # parser.add_argument('--project_name', default="BReLU_CIFAR10_IAT_seeds", help='wandb project name')
 # parser.add_argument('--project_name', default="Brelu_CIFAR-10", help='wandb project name')
@@ -142,6 +142,8 @@ class ModelWrapper(pl.LightningModule):
         super(ModelWrapper, self).__init__()
         self.config = config
         self.cnn = self.create_model(self.config['activation'])
+        mean, std = getDataNormalization(self.config["dataset"])
+        self.normalization = transforms.Normalize(mean, std)
     
     
     def replace_activation(self, module, new_activation_fn, alpha=None):
@@ -210,6 +212,7 @@ class ModelWrapper(pl.LightningModule):
         return model
 
     def forward(self, x):
+        x = self.normalization(x)
         return self.cnn(x)
 
 
@@ -429,13 +432,11 @@ def choose_dataset(config):
             transforms.RandomCrop(32, padding=4),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
         ])
 
         test_transform = transforms.Compose(
             [
             transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
         ])
             
         trainset = CIFAR10(root='~/data', train=True,
@@ -456,7 +457,6 @@ def choose_dataset(config):
             transforms.Resize((256, 256)),
             transforms.CenterCrop((224,224)),
             transforms.ToTensor(),
-            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
         ])
         
         trainset = ImageFolder('/data/ImageNet100/train', transform=transform)
@@ -473,7 +473,6 @@ def choose_dataset(config):
             transforms.Resize((256, 256)),
             transforms.CenterCrop((224,224)),
             transforms.ToTensor(),
-            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
         ])
 
         trainset = ImageFolder('/data/ImageNet/2012/ILSVRC2012_img_train', transform=transform)
@@ -491,7 +490,7 @@ def choose_dataset(config):
             transforms.RandomHorizontalFlip(),
             transforms.RandomResizedCrop(64),
             transforms.ToTensor(),
-            transforms.Normalize((0.4802, 0.4481, 0.3975), (0.2302, 0.2265, 0.2262))
+
         ])
         data_raw = ImageFolder('/data/tiny-imagenet-200/train', transform=transform)
         trainset, testset = torch.utils.data.random_split(data_raw, [0.9, 0.1])
@@ -502,7 +501,6 @@ def choose_dataset(config):
     elif(config["dataset"]=="MNIST"):
         transform = transforms.Compose(
             [transforms.ToTensor(),
-             transforms.Normalize((0.1307, ), (0.3081, ))
         ])
 
         trainset = MNIST(root='~/data', train=True,
@@ -538,9 +536,8 @@ def train_model():
     seed = seed if seed is not None else 42
     print(f"Seed is {seed}")
     seed_everything(seed)
-    setproctitle(f"{config['activation']}_{config['architecture']} training (jh)")
-    # wandb.define_metric("val_acc", summary="max")
-    # wandb.define_metric("Robust_acc", summary="max")
+    wandb.define_metric("val_acc", summary="max")
+    wandb.define_metric("Robust_acc", summary="max")
     # name_postfix = "reference" if config['activation'] == 'relu' else "ReAct"
     rpa = '-All' if config.get('replaceAll') else ''
     name_postfix = config['activation'] + rpa + '-' + config['optimizer']
@@ -582,7 +579,7 @@ def train_model():
     alpha = f"_a={config.get('alpha')}" if config['activation'] in variable_act else ''
 
     a_dir = '' if alpha=='' else f"/a={config.get('alpha')}"
-    dir_path = f"./ckpt_{config['architecture']}/{config['dataset']}/{'all' if config.get('replaceAll') else 'part'}/{config['optimizer']}/{config['activation']}{a_dir}{'/'+str(seed)}"
+    dir_path = f"./ckpt_wide/{config['dataset']}/{'all' if config.get('replaceAll') else 'part'}/{config['optimizer']}/{config['activation']}{a_dir}{'/'+str(seed)}"
     file_name = f"{config['activation']}{alpha}{'_ALL' if config.get('replaceAll') else ''}_{config['dataset']}_{config['optimizer']}_"
     # dir_path = f"./ckpt_pgd7/{config['dataset']}/{'all' if config.get('replaceAll') else 'part'}/{config['optimizer']}/{config['activation']}/{prefix_d}/{dropout_p}"
     # file_name = f"{config['activation']}{alpha}{'_ALL' if config.get('replaceAll') else ''}_{config['dataset']}_{config['optimizer']}_drop={dropout_p}"
@@ -620,7 +617,7 @@ def train_model():
 
 
 def main():
-    # setproctitle('pgd7 adv train (jh)')
+    setproctitle('pgd7 adv train (jh)')
     resume = sweep_config.get('sweep_id')
     sweep_id = resume if resume else wandb.sweep(sweep_config, project=project_name)
     # sweep_id = "gt3qp3cj"
