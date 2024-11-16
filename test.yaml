@@ -1,0 +1,50 @@
+program: test_norm.py
+method: grid
+name: test_name
+metric:
+  goal: maximize
+  name: Robust_acc
+
+# sweep_id: "pqwt9t59"
+
+parameters:
+  # seed: 
+    # values: [42, 374829, 582947, 194837, 920157, 647382, 813940, 562718, 731209, 284950]
+  seed:
+    values: [42]
+  # architecture:
+    # values : ["resnet18", "resnet50", "resnet101", "vit", "swin"]
+  architecture:
+    value: "resnet18"
+  pretrain:
+    values: [False]
+  # dataset:
+  #   values: ["MNIST", "CIFAR10", "ImageNet100", "ImageNet"]
+  dataset:
+    value: "CIFAR10"
+  lr:
+    values: [0.01]
+  # activation:
+  #   values: ["brelu", "relu", "gelu", "silu", "elu", "LReLU", "PReLU"]
+  activation:
+    values: ["brelu", "relu", "gelu"]
+  optimizer: 
+    values: ["AdamW"]
+  beta1:
+    values: [0.9]
+  beta2:
+    values: [0.999]
+  batch_size:
+    value: 512
+  num_workers:
+    value: 16
+  lr_scheduler:
+    values: [True]
+  epochs:
+    value: 100
+  adv:
+    values: [True]
+  eps:
+    values: [0.03]
+  replaceAll:
+    values: [True]
