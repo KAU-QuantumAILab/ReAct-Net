@@ -38,7 +38,7 @@ parser = argparse.ArgumentParser(
     """
 )
 parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
-parser.add_argument('--project_name', default="CIFAR10_transformer", help='wandb project name')
+parser.add_argument('--project_name', default="CIFAR10_Norm_test", help='wandb project name')
 parser.add_argument('--entity', default='kau-quantum', help='wandb entity name')
 parser.add_argument('--devices', default=0, type=int, help='choose the CUDA(ex: 0, 1, 2, -1)')
 
@@ -216,7 +216,7 @@ class Classifier(pl.LightningModule):
         self.model = create_model(architecture, dataset, num_classes, pretrain)
         self.replace_activation(self.model, self.config['activation'], self.config.get('alpha'))
         
-        print(self.model)
+        print(self)
     
     
     def forward(self, x):
@@ -300,7 +300,7 @@ class Classifier(pl.LightningModule):
         
     def evaluate(self, batch, stage=None):
         x, y = batch
-        logits = self.encoder(x)
+        logits = self(x)
         loss = nn.functional.cross_entropy(logits, y)
         preds = torch.argmax(logits, dim=1)
         acc = accuracy(preds, y, num_classes=self.config["num_classes"], task="multiclass")
@@ -354,7 +354,7 @@ class Classifier(pl.LightningModule):
         
     def replace_activation(self, module, new_activation_fn, alpha=None):
         for name, child in module.named_children():
-            if isinstance(child, ReLU):
+            if isinstance(child, (ReLU, GELU, LeakyReLU, SiLU)):
                 if new_activation_fn in ["Vbrelu", "leakyVbrelu", "PVbrelu"]:
                     new_act = activation_functions[new_activation_fn](alpha=alpha)
                 else:
@@ -452,9 +452,13 @@ def load_dataset(config):
         test_transforms = transforms.Compose([
             transforms.ToTensor()
         ])
+        print(f"model_norm : {model_norm}")
         if model_norm == False:
             train_transforms.transforms.append(transforms.Normalize(mean, std))
-            train_transforms.transforms.append(transforms.Normalize(mean, std))
+            test_transforms.transforms.append(transforms.Normalize(mean, std))
+        
+        print(f"train_transform\n{train_transforms}")
+        print(f"test_transform\n{test_transforms}")
         
         train_set = CIFAR10(
             root=train_roots,
@@ -510,13 +514,15 @@ def load_dataset(config):
         dataset=train_set,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=num_workers
+        num_workers=num_workers,
+        pin_memory=True
     )
     test_loader = DataLoader(
         dataset=test_set,
         batch_size=batch_size,
         shuffle=False,
-        num_workers=num_workers
+        num_workers=num_workers,
+        pin_memory=True
     )
     
     return train_loader, test_loader
