@@ -1,6 +1,6 @@
 program: test_norm.py
 method: grid
-name: test_name
+name: transformer_norm_test
 metric:
   goal: maximize
   name: Robust_acc
@@ -13,17 +13,19 @@ parameters:
   seed:
     values: [42]
   # architecture:
-    # values : ["resnet18", "resnet50", "resnet101", "vit", "swin"]
+    # values : ["resnet18", "resnet50", "resnet101", "wide_resnet50", "wide_resnet101", "vit", "swin"]
   architecture:
-    value: "resnet18"
+    values: ["vit", "swin"]
+  model_norm:
+    values: [True, False]
   pretrain:
     values: [False]
   # dataset:
   #   values: ["MNIST", "CIFAR10", "ImageNet100", "ImageNet"]
   dataset:
-    value: "CIFAR10"
+    values: ["CIFAR10", "ImageNet100"]
   lr:
-    values: [0.01]
+    values: [0.001]
   # activation:
   #   values: ["brelu", "relu", "gelu", "silu", "elu", "LReLU", "PReLU"]
   activation:
@@ -41,7 +43,7 @@ parameters:
   lr_scheduler:
     values: [True]
   epochs:
-    value: 100
+    value: 200
   adv:
     values: [True]
   eps:
