@@ -29,6 +29,7 @@ from torchvision.models import *
 
 from models import BReLU, VariableBReLU, LeakyVariableBReLU, PVariableBReLU, Leaky_BReLU, PBReLU
 from modules import seed_everything
+from wide_resnet import wide_resnet_28_10
 
 #############################################################################################################
 
@@ -38,7 +39,7 @@ parser = argparse.ArgumentParser(
     """
 )
 parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
-parser.add_argument('--project_name', default="CIFAR10_Norm_test", help='wandb project name')
+parser.add_argument('--project_name', default="BReLU_CIFAR10_wide", help='wandb project name')
 parser.add_argument('--entity', default='kau-quantum', help='wandb entity name')
 parser.add_argument('--devices', default=0, type=int, help='choose the CUDA(ex: 0, 1, 2, -1)')
 
@@ -95,7 +96,7 @@ def get_num_classes(dataset):
         return 200
     elif dataset in ["ImageNet100"]:
         return 100
-    
+
     
 def create_model(architecture, dataset, num_classes, pretrain):
     if architecture == 'vit':
@@ -145,6 +146,7 @@ def create_model(architecture, dataset, num_classes, pretrain):
             'resnet101' : resnet101,
             'wide_resnet50' : wide_resnet50_2,
             'wide_resnet101': wide_resnet101_2,
+            'wide_resnet28_10' : wide_resnet_28_10,
         }
         resnet_weights = {
             'resnet18' : ResNet18_Weights.IMAGENET1K_V1,
@@ -153,6 +155,10 @@ def create_model(architecture, dataset, num_classes, pretrain):
             'wide_resnet50' : Wide_ResNet50_2_Weights.IMAGENET1K_V1,
             'wide_resnet101': Wide_ResNet50_2_Weights.IMAGENET1K_V1,
         }
+
+        if architecture == 'wide_resnet28_10':
+            return wide_resnet_28_10(weights=None, num_classes=num_classes)
+
         if dataset in ["ImageNet", "ImageNet100"]:
             if pretrain:
                 weight = resnet_weights[architecture]

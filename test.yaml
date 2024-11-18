@@ -1,11 +1,11 @@
 program: test_norm.py
 method: grid
-name: transformer_norm_test
+name: wide_resnet28_10_norm_test
 metric:
   goal: maximize
   name: Robust_acc
 
-# sweep_id: "pqwt9t59"
+# sweep_id: "fgmzem24"
 
 parameters:
   # seed: 
@@ -13,9 +13,9 @@ parameters:
   seed:
     values: [42]
   # architecture:
-    # values : ["resnet18", "resnet50", "resnet101", "wide_resnet50", "wide_resnet101", "vit", "swin"]
+    # values : ["resnet18", "resnet50", "resnet101", "wide_resnet28_10", "wide_resnet50", "wide_resnet101", "vit", "swin"]
   architecture:
-    values: ["vit", "swin"]
+    values: ["wide_resnet28_10"]
   model_norm:
     values: [True, False]
   pretrain:
@@ -23,13 +23,13 @@ parameters:
   # dataset:
   #   values: ["MNIST", "CIFAR10", "ImageNet100", "ImageNet"]
   dataset:
-    values: ["CIFAR10", "ImageNet100"]
+    values: ["CIFAR10"]
   lr:
-    values: [0.001]
-  # activation:
-  #   values: ["brelu", "relu", "gelu", "silu", "elu", "LReLU", "PReLU"]
+    values: [0.01]
   activation:
-    values: ["brelu", "relu", "gelu"]
+    values: ["brelu", "relu", "gelu", "silu", "elu", "LReLU", "PReLU"]
+  # activation:
+  #   values: ["brelu", "relu", "gelu"]
   optimizer: 
     values: ["AdamW"]
   beta1:
@@ -37,13 +37,13 @@ parameters:
   beta2:
     values: [0.999]
   batch_size:
-    value: 512
+    value: 256
   num_workers:
     value: 16
   lr_scheduler:
     values: [True]
   epochs:
-    value: 200
+    value: 100
   adv:
     values: [True]
   eps:
