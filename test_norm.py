@@ -561,8 +561,9 @@ def train_model():
     alpha = f"_a={config.get('alpha')}" if config['activation'] in variable_act else ''
     a_dir = '' if alpha=='' else f"/a={config.get('alpha')}"
     model_norm = 'model_norm' if config.get('model_norm', True) == True else 'data_norm'
+    pretrained = 'pretrained' if config.get('pretrain') else ''
     dir_path = f"./{model_norm}/ckpt_{config['architecture']}/{config['dataset']}/{'all' if config.get('replaceAll') else 'part'}/{config['optimizer']}/{config['activation']}{a_dir}{'/'+str(seed)}"
-    file_name = f"{config['activation']}{alpha}{'_ALL' if config.get('replaceAll') else ''}_{config['dataset']}_{config['optimizer']}_"
+    file_name = f"{pretrained}_{config['architecture']}{config['activation']}{alpha}{'_ALL' if config.get('replaceAll') else ''}_{config['dataset']}_{config['optimizer']}_"
 
     callbacks = [LearningRateMonitor(logging_interval='step')]
     if config.get('adv') == True:
