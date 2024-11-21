@@ -1,23 +1,25 @@
-from test_norm import load_model, load_dataset, seed_everything
+import os
+import argparse
+import time
 import lightning.pytorch as pl
 import torch
 import pandas as pd
 import wandb
-import os
 from setproctitle import setproctitle
+from test_norm import load_model, load_dataset, seed_everything
 
 
 torch.set_float32_matmul_precision('high')
 seed_everything(42)
-gpu_num = [0]
-map_location = 'cuda:0'
+# gpu_num = [0]
+# map_location = 'cuda:0'
 
 
 # config 파일 생성용
 def make_config(**kwargs):
     cfg = kwargs
     cfg['pretrain'] = False
-    cfg['batch_size'] = 512
+    cfg['batch_size'] = 256
     cfg['num_workers'] = 16
     if cfg['dataset'] == 'CIFAR10':
         cfg['num_classes'] = 10
@@ -46,7 +48,7 @@ def printConfig(cfg):
 
 
 # fgsm attack test 함수
-def fgsm_test(name, opt, ckpt, replace, alpha, seed, dataset, arch='resnet18'):
+def fgsm_test(name, opt, ckpt, replace, alpha, seed, dataset, model_norm, arch='resnet18'):
     cfg = make_config(
         architecture=arch,
         dataset=dataset,
@@ -58,17 +60,18 @@ def fgsm_test(name, opt, ckpt, replace, alpha, seed, dataset, arch='resnet18'):
         atk='FGSM', 
         eps=0.0314, 
         seed=seed,
+        model_norm=model_norm
     )
-    printConfig(cfg)
     model = load_model(ckpt=ckpt, config=cfg, map_location=map_location)
     _, valloader = load_dataset(config=cfg)
     trainer = pl.Trainer(inference_mode=False, devices = gpu_num)
+    printConfig(cfg)
     result = trainer.test(model, valloader)
     return result[0]
 
 
 # pgd attack test 함수
-def pgd_test(name, opt, ckpt, replace, alpha, seed, dataset, eps=0.0314, steps = 3, arch='resnet18'):
+def pgd_test(name, opt, ckpt, replace, alpha, seed, dataset, model_norm, eps=0.0314, steps = 3, arch='resnet18'):
     cfg = make_config(
         architecture=arch,
         dataset=dataset,
@@ -81,17 +84,19 @@ def pgd_test(name, opt, ckpt, replace, alpha, seed, dataset, eps=0.0314, steps =
         steps=steps,
         eps=eps,
         seed=seed,
+        model_norm=model_norm
     )
-    printConfig(cfg)
     model = load_model(ckpt=ckpt, config=cfg, map_location=map_location)
     _, valloader = load_dataset(config=cfg)
     trainer = pl.Trainer(inference_mode=False, devices = gpu_num)
+    printConfig(cfg)
     result = trainer.test(model, valloader)
     return result[0]
 
 
 # CW attack test 함수
-def CW_test(act, opt, ckpt, replace, alpha, seed, dataset, c = 1, kappa = 0, steps = 50, arch='resnet18'):
+def CW_test(act, opt, ckpt, replace, alpha, seed, dataset, model_norm,
+            c = 1, kappa = 0, steps = 50, arch='resnet18'):
     cfg = make_config(
         architecture=arch,
         dataset=dataset,
@@ -105,17 +110,18 @@ def CW_test(act, opt, ckpt, replace, alpha, seed, dataset, c = 1, kappa = 0, ste
         c=c,
         kappa=kappa,
         steps=steps,
+        model_norm=model_norm
     )
-    printConfig(cfg)
     model = load_model(ckpt=ckpt, config=cfg, map_location=map_location)
     _, valloader = load_dataset(config=cfg)
     trainer = pl.Trainer(inference_mode=False, devices=gpu_num)
+    printConfig(cfg)
     result = trainer.test(model, valloader)
     return result[0]
 
 
 # AutoAttack
-def autoattack_test(act, opt, ckpt, replace, alpha, seed, dataset, arch='resnet18'):
+def autoattack_test(act, opt, ckpt, replace, alpha, seed, dataset, model_norm, arch='resnet18'):
     cfg = make_config(
         architecture=arch,
         dataset=dataset,
@@ -127,16 +133,17 @@ def autoattack_test(act, opt, ckpt, replace, alpha, seed, dataset, arch='resnet1
         atk='auto',
         eps=0.0314,
         seed=seed,
+        model_norm=model_norm
     )
-    printConfig(cfg)
     model = load_model(ckpt=ckpt, config=cfg, map_location=map_location)
     _, valloader = load_dataset(config=cfg)
     trainer = pl.Trainer(inference_mode=False, devices=gpu_num)
+    printConfig(cfg)
     result = trainer.test(model, valloader)[0]
     return result
 
 
-def square_test(act, opt, ckpt, replace, alpha, seed, dataset, arch='resnet18'):
+def square_test(act, opt, ckpt, replace, alpha, seed, dataset, model_norm, arch='resnet18'):
     cfg = make_config(
         architecture=arch,
         dataset=dataset,
@@ -145,19 +152,21 @@ def square_test(act, opt, ckpt, replace, alpha, seed, dataset, arch='resnet18'):
         replaceALL=replace,
         alpha=alpha,
         adv=True,
-        atk_type='square',
+        atk='square',
         eps=0.0314,
         seed=seed,
+        model_norm=model_norm
     )
-    printConfig(cfg)
     model = load_model(ckpt=ckpt, config=cfg, map_location=map_location)
     _, valloader = load_dataset(config=cfg)
     trainer = pl.Trainer(inference_mode=False, devices=gpu_num)
+    printConfig(cfg)
     result = trainer.test(model, valloader)[0]
     return result
 
 
-def eotpgd_test(act, opt, ckpt, replace, alpha, seed, dataset, eot_steps = 10, eot_iter=2, arch='resnet18'):
+def eotpgd_test(act, opt, ckpt, replace, alpha, seed, dataset, model_norm,
+                eot_steps = 10, eot_iter=2, arch='resnet18'):
     cfg = make_config(
         architecture=arch,
         dataset=dataset,
@@ -166,21 +175,22 @@ def eotpgd_test(act, opt, ckpt, replace, alpha, seed, dataset, eot_steps = 10, e
         replaceALL=replace,
         alpha=alpha,
         adv=True,
-        atk_type='eotpgd',
+        atk='eotpgd',
         steps=eot_steps, 
         eot_iter=eot_iter,
         eps=0.0314,
         seed=seed,
+        model_norm=model_norm
     )
-    printConfig(cfg)
     model = load_model(ckpt=ckpt, config=cfg, map_location=map_location)
     _, valloader = load_dataset(config=cfg)
     trainer = pl.Trainer(inference_mode=False, devices = gpu_num)
+    printConfig(cfg)
     result = trainer.test(model, valloader)[0]
     return result
 
 
-def one_pixel_test(act, opt, ckpt, replace, alpha, seed, dataset, arch='resnet18'):
+def one_pixel_test(act, opt, ckpt, replace, alpha, seed, dataset, model_norm, arch='resnet18'):
     cfg = make_config(
         architecture=arch,
         dataset=dataset,
@@ -189,18 +199,19 @@ def one_pixel_test(act, opt, ckpt, replace, alpha, seed, dataset, arch='resnet18
         replaceALL=replace,
         alpha=alpha,
         adv=True,
-        atk_type='one_pixel',
+        atk='one_pixel',
         seed=seed,
+        model_norm=model_norm
     )
-    printConfig(cfg)
     model = load_model(ckpt=ckpt, config=cfg, map_location=map_location)
     _, valloader = load_dataset(config=cfg)
     trainer = pl.Trainer(inference_mode=False, devices=gpu_num)
+    printConfig(cfg)
     result = trainer.test(model, valloader)[0]
     return result
 
 
-def pixle_test(act, opt, ckpt, replace, alpha, seed, dataset, arch='resnet18'):
+def pixle_test(act, opt, ckpt, replace, alpha, seed, dataset, model_norm, arch='resnet18'):
     cfg = make_config(
         architecture=arch,
         dataset=dataset,
@@ -211,11 +222,12 @@ def pixle_test(act, opt, ckpt, replace, alpha, seed, dataset, arch='resnet18'):
         adv=True,
         atk_type='pixle',
         seed=seed,
+        model_norm=model_norm
     )
-    printConfig(cfg)
     model = load_model(ckpt=ckpt, config=cfg, map_location=map_location)
     _, valloader = load_dataset(config=cfg)
     trainer = pl.Trainer(inference_mode=False, devices=gpu_num)
+    printConfig(cfg)
     result = trainer.test(model, valloader)[0]
     return result
 
@@ -242,6 +254,7 @@ def extract_config_from_path(path_info):
     
     # replaceALL 찾기 ('all' 또는 'part')
     config['replaceAll'] = 'all' in path_info
+    config['model_norm'] = 'model_norm' in path_info
     
     # 나머지 정보들은 상대적 위치가 고정되어 있다고 가정
     for part in path_info:
@@ -300,7 +313,9 @@ def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
             act = info['activation']           # activation 정보
             seed = info['seed']
             alpha = info['alpha'].lstrip('a=') if act in variable else 'NULL'    # a=5 에서 a= 제거
+            model_norm = info['model_norm']
             
+            temp_dict['model_norm'] = model_norm
             temp_dict['dataset'] = dataset
             temp_dict['activation'] = act
             temp_dict['alpha'] = alpha
@@ -317,6 +332,7 @@ def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
                         entity="kau-quantum",
                         name=row_name,
                         config=make_config(
+                            model_norm=model_norm,
                             dataset=dataset,
                             act=act,
                             opt=opt,
@@ -337,7 +353,8 @@ def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
                     replace=replaceALL,
                     alpha=alpha,
                     seed=seed,
-                    arch=arch)
+                    arch=arch,
+                    model_norm=model_norm)
                 temp_dict['clean_acc'] = fgsm_result['test_clean_acc']
                 temp_dict['FGSM_acc'] = fgsm_result['test_FGSM_acc']
                 if log_wandb:
@@ -347,7 +364,7 @@ def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
                     
             if pgd:
                 for i in pgd_steps:
-                    col_name = f"PGD {i}"
+                    col_name = f"PGD_{i}_acc"
                     pgd_result = pgd_test(
                         dataset=dataset,
                         name=act,
@@ -357,10 +374,11 @@ def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
                         alpha=alpha, 
                         steps=i, 
                         seed=seed, 
-                        arch=arch)
+                        arch=arch,
+                        model_norm=model_norm)
                     temp_dict[col_name] = pgd_result['test_PGD_acc']
                     if log_wandb:
-                        wandb.log({"PGD_acc" : pgd_result['test_PGD_acc']})
+                        wandb.log({col_name : pgd_result['test_PGD_acc']})
                         
                 
             if cw:
@@ -375,7 +393,8 @@ def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
                     c = cw_c, 
                     kappa=cw_kappa, 
                     steps=cw_step, 
-                    arch=arch)
+                    arch=arch,
+                    model_norm=model_norm)
                 temp_dict['cw_acc'] = cw_result['test_CW_acc']
                 if log_wandb:
                     wandb.config['cw_c'] = cw_c
@@ -393,7 +412,8 @@ def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
                     replace=replaceALL,
                     alpha=alpha, 
                     seed=seed, 
-                    arch=arch)
+                    arch=arch,
+                    model_norm=model_norm)
                 temp_dict['autoattack_acc'] = autoattack_result['test_auto_acc']
                 if log_wandb:
                     wandb.log({'AutoAttack_acc': autoattack_result['test_auto_acc']})
@@ -407,7 +427,8 @@ def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
                     replace=replaceALL,
                     alpha=alpha, 
                     seed=seed, 
-                    arch=arch)
+                    arch=arch,
+                    model_norm=model_norm)
                 temp_dict['square_acc'] = square_result['test_square_acc']
                 if log_wandb:
                     wandb.log({'Square_acc' : square_result['test_square_acc']})
@@ -421,7 +442,8 @@ def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
                     replace=replaceALL,
                     alpha=alpha, 
                     seed=seed, 
-                    arch=arch)
+                    arch=arch,
+                    model_norm=model_norm)
                 temp_dict['one_pixel_acc'] = one_pixel_result['test_one_pixel_acc']
                 if log_wandb:
                     wandb.log({'one_pixel_acc' : one_pixel_result['test_one_pixel_acc']})
@@ -435,7 +457,8 @@ def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
                     replace=replaceALL,
                     alpha=alpha, 
                     seed=seed, 
-                    arch=arch)
+                    arch=arch,
+                    model_norm=model_norm)
                 temp_dict['pixle_acc'] = pixle_result['test_pixle_acc']
                 if log_wandb:
                     wandb.log({'Pixle_acc' : pixle_result['test_pixle_acc']})
@@ -451,7 +474,8 @@ def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
                     seed=seed, 
                     arch=arch,
                     eot_steps=eot_steps, 
-                    eot_iter=eot_iter)
+                    eot_iter=eot_iter,
+                    model_norm=model_norm)
                 temp_dict['eotpgd_acc'] = eotpgd_result['test_eotpgd_acc']
                 if log_wandb:
                     wandb.log({'EOTPGD_acc' : eotpgd_result['test_eotpgd_acc']})
@@ -473,17 +497,38 @@ def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
 
 
 if __name__=='__main__':
-    pgd_step = 20
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--ckpt', help='ckpt root directory')
+    parser.add_argument('-f', '--fgsm', dest='fgsm', action='store_true')
+    parser.add_argument('-p', '--pgd', dest='pgd', action='store_true')
+    parser.add_argument('-c', '--cw', dest='cw', action='store_true')
+    parser.add_argument('-a', '--auto', dest='auto', action='store_true')
+    parser.add_argument('-s', '--square', dest='square', action='store_true')
+    parser.add_argument('-e', '--eotpgd', dest='eotpgd', action='store_true')
+    parser.add_argument('-o', '--one_pixel', dest='one_pixel', action='store_true')
+    parser.add_argument('-pi', '--pixle', dest='pixle', action='store_true')
+    parser.add_argument('-w', '--wandb', dest='wandb', action='store_true')
+    parser.add_argument('--project', default="WRN28-10_Attack_test", help="wandb project name")
+    parser.add_argument('--csv', default=f"{time.strftime('%Y.%m.%d - %H:%M:%S')}", help='save csv file name')
+    parser.add_argument('--devices', default=0, type=int)
+    
+    args = parser.parse_args()
+    
+    global gpu_num, map_location
+    gpu_num = [args.devices]
+    map_location = f"cuda:{args.devices}"
+    
+    pgd_step = [20, 100]
     all_test(
-        ckpt_root_dir = './model_norm/ckpt_wide_resnet28_10',
-        fgsm = True,
-        pgd = False, pgd_step = pgd_step,
-        cw=False, cw_c= 1, cw_kappa = 0, cw_step = 40,
-        autoattack=False,
-        square=False,
-        eotpgd=False, eot_steps=20, eot_iter=5,
-        one_pixel=False,
-        pixle=False,
-        log_wandb = False, project_name = 'resnet18_review',
-        csv_file_name = 'test_fgsm.csv'
+        ckpt_root_dir = args.ckpt,
+        fgsm = args.fgsm,
+        pgd = args.pgd, pgd_step = pgd_step,
+        cw=args.cw, cw_c= 1, cw_kappa = 0, cw_step = 40,
+        autoattack=args.auto,
+        square=args.square,
+        eotpgd=args.eotpgd, eot_steps=20, eot_iter=5,
+        one_pixel=args.one_pixel,
+        pixle=args.pixle,
+        log_wandb = args.wandb, project_name = args.project,
+        csv_file_name = f'{args.csv}.csv'
     )
