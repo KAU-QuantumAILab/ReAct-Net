@@ -33,29 +33,30 @@ from wide_resnet import wide_resnet_28_10
 
 #############################################################################################################
 
-parser = argparse.ArgumentParser(
-    description="""sweep with yaml
-    usage: trans.py --yaml [yaml_path] --devices 0 --project_name [pname] --entity [ename]
-    """
-)
-parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
-parser.add_argument('--project_name', default="BReLU_CIFAR10_wide", help='wandb project name')
-parser.add_argument('--entity', default='kau-quantum', help='wandb entity name')
-parser.add_argument('--devices', default=0, type=int, help='choose the CUDA(ex: 0, 1, 2, -1)')
+def premain():
+    parser = argparse.ArgumentParser(
+        description="""sweep with yaml
+        usage: trans.py --yaml [yaml_path] --devices 0 --project_name [pname] --entity [ename]
+        """
+    )
+    parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
+    parser.add_argument('--project_name', default="BReLU_CIFAR10_wide", help='wandb project name')
+    parser.add_argument('--entity', default='kau-quantum', help='wandb entity name')
+    parser.add_argument('--devices', default=0, type=int, help='choose the CUDA(ex: 0, 1, 2, -1)')
 
-args = parser.parse_args()
+    args = parser.parse_args()
 
-torch.set_float32_matmul_precision('high')
-# torch.autograd.set_detect_anomaly(True)
-global project_name, sweep_config, device_num
+    torch.set_float32_matmul_precision('high')
+    # torch.autograd.set_detect_anomaly(True)
+    global project_name, entity, sweep_config, device_num
 
-project_name = args.project_name        # wandb project name
-entity = args.entity
-device_num = [args.devices]
-ypath = args.yaml
+    project_name = args.project_name        # wandb project name
+    entity = args.entity
+    device_num = [args.devices]
+    ypath = args.yaml
 
-with open(ypath) as file:
-    sweep_config = yaml.load(file, Loader=yaml.FullLoader)
+    with open(ypath) as file:
+        sweep_config = yaml.load(file, Loader=yaml.FullLoader)
     
     
 activation_functions = {
@@ -431,6 +432,12 @@ class Classifier(pl.LightningModule):
             return {"optimizer": optimizer, "monitor": "val_acc"}
 
 
+def load_model(ckpt, config, map_location = None):
+    return Classifier.load_from_checkpoint(
+        checkpoint_path=ckpt, 
+        config=config,
+        map_location=map_location
+    )
 
 def load_dataset(config):
     data_roots = {
@@ -626,5 +633,6 @@ def main():
         entity=entity,
         project=project_name
     )
-    
-main()
+
+if __name__ == '__main__':
+    main()
