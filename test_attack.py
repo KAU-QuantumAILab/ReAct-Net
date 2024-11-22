@@ -220,7 +220,7 @@ def pixle_test(act, opt, ckpt, replace, alpha, seed, dataset, model_norm, arch='
         replaceALL=replace,
         alpha=alpha,
         adv=True,
-        atk_type='pixle',
+        atk='pixle',
         seed=seed,
         model_norm=model_norm
     )
