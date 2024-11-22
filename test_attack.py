@@ -434,7 +434,7 @@ def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
                     wandb.log({'Square_acc' : square_result['test_square_acc']})
             
             if one_pixel:
-                one_pixel_result = square_test(
+                one_pixel_result = one_pixel_test(
                     dataset=dataset,
                     act=act, 
                     opt=opt, 
@@ -449,7 +449,7 @@ def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
                     wandb.log({'one_pixel_acc' : one_pixel_result['test_one_pixel_acc']})
             
             if pixle:
-                pixle_result = square_test(
+                pixle_result = pixle_test(
                     dataset=dataset,
                     act=act, 
                     opt=opt, 
