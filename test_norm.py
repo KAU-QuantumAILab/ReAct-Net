@@ -575,21 +575,6 @@ def train_model():
     callbacks = [LearningRateMonitor(logging_interval='step')]
     if config.get('adv') == True:
         checkpoint_callback = ModelCheckpoint(
-            monitor="val_acc", 
-            mode="max",
-            dirpath=dir_path,
-            filename= file_name + '{epoch}_{val_acc:.4f}'
-        )
-        callbacks.append(checkpoint_callback)
-        # early_stop = EarlyStopping(
-        #     monitor='val_acc',
-        #     mode='max',
-        #     patience=8
-        # )
-        # callbacks.append(early_stop)
-        
-    else:
-        checkpoint_callback = ModelCheckpoint(
             monitor="Robust_acc", 
             mode="max",
             dirpath=dir_path,
@@ -598,6 +583,21 @@ def train_model():
         callbacks.append(checkpoint_callback)
         # early_stop = EarlyStopping(
         #     monitor='Robust_acc',
+        #     mode='max',
+        #     patience=8
+        # )
+        # callbacks.append(early_stop)
+        
+    else:
+        checkpoint_callback = ModelCheckpoint(
+            monitor="val_acc", 
+            mode="max",
+            dirpath=dir_path,
+            filename= file_name + '{epoch}_{val_acc:.4f}'
+        )
+        callbacks.append(checkpoint_callback)
+        # early_stop = EarlyStopping(
+        #     monitor='val_acc',
         #     mode='max',
         #     patience=8
         # )
