@@ -1,6 +1,7 @@
 import os
 import argparse
 import time
+import gc
 import lightning.pytorch as pl
 import torch
 import pandas as pd
@@ -19,7 +20,7 @@ seed_everything(42)
 def make_config(**kwargs):
     cfg = kwargs
     cfg['pretrain'] = False
-    cfg['batch_size'] = 256
+    cfg['batch_size'] = 16
     cfg['num_workers'] = 16
     if cfg['dataset'] == 'CIFAR10':
         cfg['num_classes'] = 10
@@ -67,6 +68,12 @@ def fgsm_test(name, opt, ckpt, replace, alpha, seed, dataset, model_norm, arch='
     trainer = pl.Trainer(inference_mode=False, devices = gpu_num)
     printConfig(cfg)
     result = trainer.test(model, valloader)
+    
+    # garbage collector, GPU 메모리 확보
+    del model, valloader, trainer
+    torch.cuda.empty_cache()
+    gc.collect()
+    
     return result[0]
 
 
@@ -91,6 +98,12 @@ def pgd_test(name, opt, ckpt, replace, alpha, seed, dataset, model_norm, eps=0.0
     trainer = pl.Trainer(inference_mode=False, devices = gpu_num)
     printConfig(cfg)
     result = trainer.test(model, valloader)
+    
+    # garbage collector, GPU 메모리 확보
+    del model, valloader, trainer
+    torch.cuda.empty_cache()
+    gc.collect()
+    
     return result[0]
 
 
@@ -117,6 +130,12 @@ def CW_test(act, opt, ckpt, replace, alpha, seed, dataset, model_norm,
     trainer = pl.Trainer(inference_mode=False, devices=gpu_num)
     printConfig(cfg)
     result = trainer.test(model, valloader)
+    
+    # garbage collector, GPU 메모리 확보
+    del model, valloader, trainer
+    torch.cuda.empty_cache()
+    gc.collect()
+    
     return result[0]
 
 
@@ -140,6 +159,12 @@ def autoattack_test(act, opt, ckpt, replace, alpha, seed, dataset, model_norm, a
     trainer = pl.Trainer(inference_mode=False, devices=gpu_num)
     printConfig(cfg)
     result = trainer.test(model, valloader)[0]
+    
+    # garbage collector, GPU 메모리 확보
+    del model, valloader, trainer
+    torch.cuda.empty_cache()
+    gc.collect()
+    
     return result
 
 
@@ -162,6 +187,12 @@ def square_test(act, opt, ckpt, replace, alpha, seed, dataset, model_norm, arch=
     trainer = pl.Trainer(inference_mode=False, devices=gpu_num)
     printConfig(cfg)
     result = trainer.test(model, valloader)[0]
+    
+    # garbage collector, GPU 메모리 확보
+    del model, valloader, trainer
+    torch.cuda.empty_cache()
+    gc.collect()
+    
     return result
 
 
@@ -187,6 +218,12 @@ def eotpgd_test(act, opt, ckpt, replace, alpha, seed, dataset, model_norm,
     trainer = pl.Trainer(inference_mode=False, devices = gpu_num)
     printConfig(cfg)
     result = trainer.test(model, valloader)[0]
+    
+    # garbage collector, GPU 메모리 확보
+    del model, valloader, trainer
+    torch.cuda.empty_cache()
+    gc.collect()
+    
     return result
 
 
@@ -208,6 +245,12 @@ def one_pixel_test(act, opt, ckpt, replace, alpha, seed, dataset, model_norm, ar
     trainer = pl.Trainer(inference_mode=False, devices=gpu_num)
     printConfig(cfg)
     result = trainer.test(model, valloader)[0]
+    
+    # garbage collector, GPU 메모리 확보
+    del model, valloader, trainer
+    torch.cuda.empty_cache()
+    gc.collect()
+    
     return result
 
 
@@ -229,6 +272,12 @@ def pixle_test(act, opt, ckpt, replace, alpha, seed, dataset, model_norm, arch='
     trainer = pl.Trainer(inference_mode=False, devices=gpu_num)
     printConfig(cfg)
     result = trainer.test(model, valloader)[0]
+    
+    # garbage collector, GPU 메모리 확보
+    del model, valloader, trainer
+    torch.cuda.empty_cache()
+    gc.collect()
+    
     return result
 
 
@@ -489,6 +538,9 @@ def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
             # print(df)
             df.to_csv(csv_file_name)
             
+            gc.collect()
+            torch.cuda.empty_cache()
+            
     # 최종 저장
     df = pd.DataFrame.from_dict(result_dict, orient='index')
     # print(df)
@@ -499,6 +551,7 @@ def all_test(ckpt_root_dir = './ckpt/CIFAR10_interpolated',
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--ckpt', help='ckpt root directory')
+    parser.add_argument('--full', action='store_true', dest='full_course')
     parser.add_argument('-f', '--fgsm', dest='fgsm', action='store_true')
     parser.add_argument('-p', '--pgd', dest='pgd', action='store_true')
     parser.add_argument('-c', '--cw', dest='cw', action='store_true')
@@ -513,6 +566,16 @@ if __name__=='__main__':
     parser.add_argument('--devices', default=0, type=int)
     
     args = parser.parse_args()
+    
+    if args.full_course:
+        args.fgsm = True
+        args.pgd = True
+        args.cw = True
+        args.auto = True
+        args.square = True
+        args.eotpgd = True
+        args.one_pixel = True
+        args.pixle = True
     
     global gpu_num, map_location
     gpu_num = [args.devices]
