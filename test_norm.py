@@ -40,7 +40,7 @@ def premain():
         """
     )
     parser.add_argument('--yaml', required=True, help='yaml 파일 경로 입력')
-    parser.add_argument('--project_name', default="BReLU_CIFAR10_wide", help='wandb project name')
+    parser.add_argument('--project_name', default="ResNet18_CIFAR10", help='wandb project name')
     parser.add_argument('--entity', default='kau-quantum', help='wandb entity name')
     parser.add_argument('--devices', default=0, type=int, help='choose the CUDA(ex: 0, 1, 2, -1)')
 
@@ -207,6 +207,9 @@ class Classifier(pl.LightningModule):
         num_classes = self.config['num_classes'] = get_num_classes(dataset)
         architecture = config['architecture']
         pretrain = config.get('pretrain', False)
+
+        self.adv_mode = config.get('adv_mode', 'standard')  # standard, trades, mart
+        self.beta = config.get('beta', 6.0) # trades, mart using parameter
         
         self.random_scheduler = config.get('random_scheduler')
         if self.random_scheduler:
@@ -231,37 +234,118 @@ class Classifier(pl.LightningModule):
         return self.model(x)
     
     
+    # all adv train (50%)
+    def standard_adv_train(self, x, y, adv_example):
+        logits = self(x)
+        pure_loss = F.cross_entropy(logits, y)
+        preds = torch.argmax(logits, dim=1)
+        acc = accuracy(preds, y, num_classes=self.config["num_classes"], task="multiclass")
+        self.log("train_clean_acc", acc)
+        
+        adv_logits = self(adv_example)
+        adv_loss = F.cross_entropy(adv_logits, y)
+        adv_preds = torch.argmax(adv_logits, dim=1)
+        robust_acc = accuracy(adv_preds, y, num_classes=self.config["num_classes"], task="multiclass")
+        self.log("train_robust_acc", robust_acc)
+        
+        loss = (pure_loss + adv_loss) / 2
+        return loss, pure_loss, adv_loss
+    
+
+    # TRADES
+    def trades_adv_train(self, x, y, adv_example):
+        logits = self(x)
+        pure_loss = F.cross_entropy(logits, y)
+        preds = torch.argmax(logits, dim=1)
+        acc = accuracy(preds, y, num_classes=self.config["num_classes"], task="multiclass")
+        self.log("train_clean_acc", acc)
+
+        adv_logits = self(adv_example)
+        adv_loss = F.kl_div(
+            F.log_softmax(adv_logits, dim=1),
+            F.softmax(logits, dim=1),
+            reduction='batchmean'
+        )
+        adv_preds = torch.argmax(adv_logits, dim=1)
+        robust_acc = accuracy(adv_preds, y, num_classes=self.config["num_classes"], task="multiclass")
+        self.log("train_robust_acc", robust_acc)
+
+        loss = pure_loss + self.beta * adv_loss
+        return loss, pure_loss, adv_loss
+    
+
+    # MART
+    def mart_adv_train(self, x, y, adv_example):
+        logits = self(x)
+        pure_loss = F.cross_entropy(logits, y)
+        preds = torch.argmax(logits, dim=1)
+        acc = accuracy(preds, y, num_classes=self.config["num_classes"], task="multiclass")
+        self.log("train_clean_acc", acc)
+
+        adv_logits = self(adv_example)
+        adv_probs = F.softmax(adv_logits, dim=1)
+        nat_probs = F.softmax(logits, dim=1)
+
+        # 두 번째로 높은 확률을 가진 클래스 선택
+        tmp1 = torch.argsort(adv_probs, dim=1)[:, -2:]
+        new_y = torch.where(tmp1[:, -1] == y, tmp1[:, -2], tmp1[:, -1])
+
+        # MART 손실 계산
+        loss_adv = F.cross_entropy(adv_logits, y) + F.nll_loss(torch.log(1.0001 - adv_probs + 1e-12), new_y)
+
+        true_probs = torch.gather(nat_probs, 1, y.unsqueeze(1)).squeeze()
+
+        kl_loss = F.kl_div(torch.log(adv_probs + 1e-12), nat_probs, reduction='none')
+        kl_loss = torch.sum(kl_loss, dim=1)
+        loss_robust = torch.mean(kl_loss * (1.0000001 - true_probs))
+
+        mart_loss = loss_adv + self.beta * loss_robust
+
+        adv_preds = torch.argmax(adv_logits, dim=1)
+        robust_acc = accuracy(adv_preds, y, num_classes=self.config["num_classes"], task="multiclass")
+        self.log("train_robust_acc", robust_acc)
+
+        # 최종 손실 계산
+        loss = pure_loss + mart_loss
+        return loss, pure_loss, mart_loss
+
+    
     def on_train_epoch_start(self):
         if self.random_scheduler:
             current_alpha = self.alpha_schedule[self.current_epoch]
             self.change_VBReLU_alpha(current_alpha)
             self.log("current_alpha", current_alpha)
     
+    
     def training_step(self, batch, batch_idx):
         x, y = batch
         
-        if(self.config['adv']):
-            # all adv train (50%)
-            logits = self(x)
-            pure_loss = nn.functional.cross_entropy(logits, y)
-            preds = torch.argmax(logits, dim=1)
-            acc = accuracy(preds, y, num_classes=self.config["num_classes"], task="multiclass")
-            self.log("train_clean_acc", acc)
+        if(self.config['adv']):                 # Adversarial training
+            adv_example = self.generateAdv(x, y, "PGD", 
+                                           eps=self.config['eps'],
+                                           alpha=0.00784,
+                                           steps=7)
+            if self.adv_mode == 'standard':     # all adv train (50%)
+                loss, pure_loss, adv_loss = self.standard_adv_train(x, y, adv_example)
+
+            elif self.adv_mode == 'trades':     # TRADES adversarial training
+                loss, pure_loss, adv_loss = self.trades_adv_train(x, y, adv_example)
+
+            elif self.adv_mode == 'mart':       # MART adversarial training
+                loss, pure_loss, adv_loss = self.mart_adv_train(x, y, adv_example)
+
+            else:
+                raise ValueError(f"Invalid adv_mode: {self.adv_mode}. Choose 'standard', 'trades' or 'mart'.")
+            
             self.log("train_clean_loss", pure_loss)
-            
-            advExample = self.generateAdv(x, y, "PGD", self.config['eps'])
-            advZ = self(advExample)
-            advLoss = nn.functional.cross_entropy(advZ, y)
-            adv_preds = torch.argmax(advZ, dim=1)
-            robust_acc = accuracy(adv_preds, y, num_classes=self.config["num_classes"], task="multiclass")
-            self.log("train_robust_acc", robust_acc)
-            self.log("train_robust_loss", advLoss)
-            
-            loss = (pure_loss + advLoss) / 2
+            self.log("train_robust_loss", adv_loss)
         
-        else:
+        else:   # natural training
             z = self(x)
-            loss = nn.functional.cross_entropy(z, y)
+            loss = F.cross_entropy(z, y)
+            preds = torch.argmax(z, dim=1)
+            acc = accuracy(preds, y, num_classes=self.config["num_classes"], task="multiclass")
+            self.log("train_acc", acc)
         
         self.log("train_loss", loss)
         return loss
@@ -320,6 +404,7 @@ class Classifier(pl.LightningModule):
 
         return loss
 
+
     def validation_step(self, batch, batch_idx):
         loss = self.evaluate(batch, "val")
         
@@ -330,6 +415,7 @@ class Classifier(pl.LightningModule):
             self.change_VBReLU_alpha(current_alpha)
             
         return loss
+
 
     def test_step(self, batch, batch_idx):
         x, y = batch
@@ -439,12 +525,13 @@ def load_model(ckpt, config, map_location = None):
         map_location=map_location
     )
 
+
 def load_dataset(config):
     data_roots = {
         'MNIST' : ('~/data', '~/data'),
         'CIFAR10' : ('~/data', '~/data'),
-        'ImageNet' : ('/data/ImageNet/2012/ILSVRC2012_img_train', '/data/ImageNet/2012/ILSVRC2012_img_val'),
-        'ImageNet100' : ('/data/ImageNet100/train', '/data/ImageNet100/val')
+        'ImageNet' : ('~/data/ImageNet/2012/ILSVRC2012_img_train', '~/data/ImageNet/2012/ILSVRC2012_img_val'),
+        'ImageNet100' : ('~/data/ImageNet100/train', '~/data/ImageNet100/val')
     }
     
     dataset = config.get('dataset')
@@ -553,7 +640,8 @@ def train_model():
     rpa = '-All' if config.get('replaceAll') else ''
     name_postfix = config['activation'] + rpa + '-' + config['optimizer']
     adver = "-adv" + 'eps:' + str(config.get('eps')) if config.get('adv') else ''
-    name = config["dataset"] + "-" + config["architecture"] + "-" + name_postfix + adver
+    # name = config["dataset"] + "-" + config["architecture"] + "-" + name_postfix + adver
+    name = f"{config["adv_mode"]}_{config["activation"]}_{config["architecture"]}_{config["dataset"]}"
     run.name = name
     
     wandb_logger = WandbLogger(config=config, save_code=False)
@@ -568,9 +656,10 @@ def train_model():
     alpha = f"_a={config.get('alpha')}" if config['activation'] in variable_act else ''
     a_dir = '' if alpha=='' else f"/a={config.get('alpha')}"
     model_norm = 'model_norm' if config.get('model_norm', True) == True else 'data_norm'
-    pretrained = 'pretrained' if config.get('pretrain') else ''
-    dir_path = f"./{model_norm}/ckpt_{config['architecture']}/{config['dataset']}/{'all' if config.get('replaceAll') else 'part'}/{config['optimizer']}/{config['activation']}{a_dir}{'/'+str(seed)}"
-    file_name = f"{pretrained}_{config['architecture']}{config['activation']}{alpha}{'_ALL' if config.get('replaceAll') else ''}_{config['dataset']}_{config['optimizer']}_"
+    pretrained = 'pretrained_' if config.get('pretrain') else ''
+    adv_train = f"adv_trained/{config.get('adv_mode', 'standard')}" if config.get('adv') else 'normal_trained'
+    dir_path = f"./{adv_train}/{model_norm}/ckpt_{config['architecture']}/{config['dataset']}/{'all' if config.get('replaceAll') else 'part'}/{config['optimizer']}/{config['activation']}{a_dir}{'/'+str(seed)}"
+    file_name = f"{pretrained}{config['architecture']}_{config['activation']}{alpha}{'_ALL' if config.get('replaceAll') else ''}_{config['dataset']}_{config['optimizer']}_"
 
     callbacks = [LearningRateMonitor(logging_interval='step')]
     if config.get('adv') == True:
@@ -635,4 +724,5 @@ def main():
     )
 
 if __name__ == '__main__':
+    premain()
     main()

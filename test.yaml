@@ -1,21 +1,21 @@
 program: test_norm.py
 method: grid
-name: wide_resnet28_10_norm_test
+name: ResNet18_CIFAR10_TRADES_MART
 metric:
   goal: maximize
   name: Robust_acc
 
-# sweep_id: "fgmzem24"
+# sweep_id: "kt3daewh"
 
 parameters:
   # seed: 
     # values: [42, 374829, 582947, 194837, 920157, 647382, 813940, 562718, 731209, 284950]
   seed:
-    values: [42]
+    values: [42, 374829, 582947]
   # architecture:
     # values : ["resnet18", "resnet50", "resnet101", "wide_resnet28_10", "wide_resnet50", "wide_resnet101", "vit", "swin"]
   architecture:
-    values: ["wide_resnet28_10"]
+    values: ["resnet18"]
   model_norm:
     values: [True, False]
   pretrain:
@@ -37,7 +37,7 @@ parameters:
   beta2:
     values: [0.999]
   batch_size:
-    value: 256
+    value: 512
   num_workers:
     value: 16
   lr_scheduler:
@@ -46,6 +46,11 @@ parameters:
     value: 100
   adv:
     values: [True]
+  adv_mode:
+    # values: ["standard", "trades", "mart"]
+    values: ["trades", "mart"]
+  beta:
+    values: [5.0]
   eps:
     values: [0.03]
   replaceAll:
