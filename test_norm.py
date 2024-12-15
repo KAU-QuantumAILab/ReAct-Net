@@ -641,7 +641,7 @@ def train_model():
     name_postfix = config['activation'] + rpa + '-' + config['optimizer']
     adver = "-adv" + 'eps:' + str(config.get('eps')) if config.get('adv') else ''
     # name = config["dataset"] + "-" + config["architecture"] + "-" + name_postfix + adver
-    name = f"{config["adv_mode"]}_{config["activation"]}_{config["architecture"]}_{config["dataset"]}"
+    name = f"{config['adv_mode']}_{config['activation']}_{config['architecture']}_{config['dataset']}"
     run.name = name
     
     wandb_logger = WandbLogger(config=config, save_code=False)
